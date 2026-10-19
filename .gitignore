@@ -7,3 +7,7 @@ __pycache__/
 logs/
 .cache/
 .run/
+d.py
+.sdk/
+frames*
+docs/

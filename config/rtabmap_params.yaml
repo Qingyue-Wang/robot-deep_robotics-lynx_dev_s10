@@ -1,11 +1,18 @@
-# Lite3 RTAB-Map parameters. MID-360 ICP owns the private odom_icp trajectory;
-# the deployment bridge converts its corrected map pose to Nav2's chassis-owned
-# odom frame without creating a second odom -> base_link TF publisher.
+# Lynx S10 RTAB-Map parameters. FRONT Airy (airy_201) is VERTICALLY mounted (pitch +90°),
+# scans a vertical disc (floor ↔ ceiling), unlike Lite3's horizontal MID-360. Ground
+# filtering uses plain height-thresholding (Grid/MaxGroundHeight below), NOT
+# Grid/NormalsSegmentation — see that parameter's comment for why the normal-based
+# classifier misreads this scan geometry and was painting the whole floor black.
+# The vertical scan also gives limited forward coverage for 2D mapping.
+#
+# ICP owns the private odom_icp trajectory; the deployment bridge converts its corrected
+# map pose to Nav2's chassis-owned odom frame without creating a second odom -> base_link
+# TF publisher.
 RGBD/CreateOccupancyGrid: true
 
-# Use only MID-360 to build the 2D occupancy grid. Orbbec RGB-D remains
-# available to RTAB-Map and scene perception, but does not write a second,
-# extrinsic-sensitive representation of the same walls into the Nav2 map.
+# Use only the Airy lidar to build the 2D occupancy grid. RGB-D (if enabled later) remains
+# available to RTAB-Map and scene perception, but does not write a second, extrinsic-sensitive
+# representation of the same walls into the Nav2 map.
 Grid/Sensor: 0
 Grid/FromDepth: false
 Grid/RangeMax: 6.0
@@ -15,8 +22,9 @@ Grid/RayTracing: true
 Grid/3D: false
 Grid/NormalsSegmentation: true
 
-# These are the values used by the previous Lite3 rtabmap_rbnx deployment.
-# The 0.25 m near-field cutoff also rejects more body/leg returns while walking.
+# TEMPORARY TEST: If ground z is actually POSITIVE (TF rotation flipped it),
+# this large threshold should make the floor white again. If it works, the root
+# cause is the airy_201 TF (start.sh vs. actual tf2_echo mismatch).
 Grid/MaxObstacleHeight: 1.5
 Grid/MaxGroundHeight: 0.1
 

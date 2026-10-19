@@ -8,6 +8,16 @@ robot:
   display_name: "DEEP Robotics Lynx S10"
   family: wheeled_quadruped
   root_part: base
+  dimensions: { length_m: 0.61, width_m: 0.37, height_m: 0.61 }
+  mass_kg: 19.0
+
+  footprint:
+    base_frame: base_link
+    points:
+      - [0.305, 0.185]
+      - [0.305, -0.185]
+      - [-0.305, -0.185]
+      - [-0.305, 0.185]
 
   components:
     - id: base
@@ -29,3 +39,17 @@ robot:
               description: "Lynx S10 stand/sit/RL-navigation posture control."
             - path: robonix/primitive/chassis/get_posture
               description: "Read the Lynx S10 current motion state."
+
+    - id: front_camera
+      type: camera
+      # RGB comes from the onboard RTSP server; there is no dedicated optical
+      # frame in the URDF yet, so mount the part on the body frame for now.
+      urdf_link: base_link
+
+      exports:
+        - provider_id: lynx_camera
+          capabilities:
+            - path: robonix/primitive/camera/rgb
+              description: "Stream RGB images (MediaMTX RTSP, H.264)."
+            - path: robonix/primitive/camera/snapshot
+              description: "Capture one RGB frame."

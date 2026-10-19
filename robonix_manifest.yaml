@@ -9,46 +9,63 @@ catalog:
     - ZLC(mujue) <mujue155@gmail.com>
 
 name: robot-deep_robotics-lynx_s10
-
 env:
   LOG: "INFO"
   # The S10 publishes its native ROS 2 topics (drdds) over the default RMW
   # (Fast DDS). Do NOT set RMW_IMPLEMENTATION here: rmw_zenoh_cpp (used by the
   # Lite3 deploy) would make the S10's topics invisible to this host.
   ROS_DOMAIN_ID: "0"
+  RBNX_BUILD_TARGET: jetson-native
+  ROBONIX_SCENE_FORCE: native
+  ROBONIX_SCENE_PLATFORM: jetson_nx
+  ROBONIX_SCENE_ROS_DISTRO: humble
+  SCENE_NATIVE_PYTHON: python3
+  SCENE_WEB_PORT: "50107"
+  ROBONIX_MAPPING_FORCE: native
+  ROBONIX_MAPPING_PLATFORM: jetson_nx
+  MAPPING_WEBUI_PORT: "8091"
+  ROBONIX_NAV2_FORCE: native
+  ROBONIX_NAV2_PLATFORM: jetson_nx
+  SCENE_MAP_ID: test1
+  SCENE_RESTORE_ON_START: "true"
+  MAPPING_MAPS_DIR: /home/nvidia/.robonix/maps
+  SCENE_OBJECT_MEMORY_DB: /home/nvidia/.robonix/scene/objects.db
+  SCENE_GRAPH_CACHE_DIR: /home/nvidia/.robonix/scene/graph
+  SCENE_ANNOTATIONS_DIR: /home/nvidia/.robonix/scene/annotations
+  SPEECH_BACKEND: tencent
 
 system:
-  atlas:
-    listen: 127.0.0.1:50051
-    log: info
+  # Atlas, Executor, and Liaison must be reachable by robonix-client. Keep
+  # Pilot and Soma private to the robot host.
+  atlas: {listen: 0.0.0.0:50051, log: info}
   soma:
-    listen: 127.0.0.1:50091
+    listen: 0.0.0.0:50091
     # robot_yaml: soma.yaml
     robot_yaml: /home/nvidia/robot-deep_robotics-lynx_s10/soma.yaml
-  executor:
-    listen: 127.0.0.1:50061
-    log: info
+  executor: {listen: 0.0.0.0:50061, log: info}
   pilot:
-    listen: 127.0.0.1:50071
+    listen: 0.0.0.0:50071
     log: info
     vlm:
       upstream: ${VLM_BASE_URL}
       api_key: ${VLM_API_KEY}
       model: ${VLM_MODEL}
       api_format: openai
-  liaison:
-    listen: 0.0.0.0:50081
-    log: info
-
+  liaison: {listen: 0.0.0.0:50081, log: info}
+  # scene:
+  #   log: info
+    # camera_provider_id: orbbec_camera
+  # vitals:
+  #   listen: 0.0.0.0:50093
+  #   log: info
+    
 primitive:
-
-
   - name: lynx_quadruped
-    # url: https://github.com/chenzk6/primitive-lynx_quadruped.git
-    # branch: main
     # For local development we point straight at the repo on disk; switch back
     # to `url:`/`branch:` once the repo is pushed to GitHub.
-    path: /home/nvidia/primitive-lynx_quadruped
+    # url: https://github.com/chenzk6/primitive-lynx_quadruped.git
+    # branch: main
+    path: ./primitives/primitive-lynx_quadruped
     config:
       motion_state_topic: /MOTION_STATE
       motion_info_topic: /MOTION_INFO
@@ -74,36 +91,52 @@ primitive:
 
 
   - name: lynx_imu
-    path: /home/nvidia/primitive-lynx_imu
+    path: ./primitives/primitive-lynx_imu
     config:
       imu_topic: /IMU           # /IMU_103 = lidar-internal IMU, alternative
       qos: best_effort
       sentinel_timeout_s: 15.0
 
   - name: lynx_lidar
-    path: /home/nvidia/primitive-lynx_lidar
+    path: ./primitives/primitive-lynx_lidar
     config:
-      points_topic: /airy_201/points   # front Airy lidar (rslidar_sdk); /airy_202/points = back
+      # FRONT Airy lidar (airy_201): VERTICAL mount (pitch +90°), scans a vertical
+      # disc (floor ↔ ceiling). Unlike the BACK lidar's horizontal 360° scan, this
+      # geometry gives poor forward coverage for 2D mapping. It also defeats
+      # RTAB-Map's normal-based ground segmentation (see Grid/NormalsSegmentation
+      # in rtabmap_params.yaml) since there is no local floor PATCH to estimate a
+      # normal from, only a thin scan line — ground filtering there now falls back
+      # to plain height-thresholding instead.
+      points_topic: /airy_201/points
       qos: reliable                     # rslidar_sdk publishes RELIABLE
       sentinel_timeout_s: 15.0          # stays Deferred until points actually flow
 
-  # - name: lynx_camera
-  #   path: /home/nvidia/primitive-lynx_camera
-  #   config:
-  #     depth_topic: /DEPTH_IMAGE
-  #     qos: reliable
-  #     sentinel_timeout_s: 15.0
+  - name: lynx_camera
+    path: ./primitives/primitive-lynx_camera
+    config:
+      # The S10's depth topic (/DEPTH_IMAGE) is registered but not flowing, so
+      # we pull RGB directly from the onboard MediaMTX RTSP server instead.
+      # Four wide-angle channels, H.264 1024x576@30. Set `enabled: false` on all
+      # but one to save decode + DDS resources.
+      channels:
+        - {name: video4, url: "rtsp://10.21.33.103:8554/video4", enabled: true, primary: true}
+        - {name: video0, url: "rtsp://10.21.33.103:8554/video0", enabled: false}
+        - {name: video2, url: "rtsp://10.21.33.103:8554/video2", enabled: false}
+        - {name: video6, url: "rtsp://10.21.33.103:8554/video6", enabled: false}
+      qos: best_effort
+      publish_hz: 10.0        # per-channel DDS publish cap (4x30Hz would saturate the bus)
+      jpeg_quality: 85
+      sentinel_timeout_s: 20.0
 
   # - name: lynx_health
-  #   path: /home/nvidia/primitive-lynx_health
+  #   path: ./primitives/primitive-lynx_health
   #   config:
   #     battery_topic: /BATTERY_DATA
   #     cpu_topic: /cpu_status
   #     interval_s: 1.0
   #     sentinel_timeout_s: 15.0
 
-
-service:
+service: 
   - name: mapping
     url: https://github.com/syswonder/service-map-rbnx
     branch: main
@@ -111,71 +144,73 @@ service:
     config:
       algo: rtabmap
       base_frame: base_link
-      odom_frame: odom_icp
+      odom_frame: odom              # external odom provider (lynx_quadruped) owns odom -> base_link
+      # odom_frame: odom                  # external odom provider (lynx_quadruped) owns odom -> base_link
       use_sim_time: false
-      map_id: flour2
+      map_id: test1
       map_mode: mapping  # localization / mapping
-      # The bridge composes RTAB-Map's map -> odom_icp localization with the
-      # time-aligned ICP and chassis poses, then publishes the sole map -> odom
-      # correction consumed by Nav2.
-      navigation_odom_bridge: true
-      navigation_odom_topic: /odom
-      navigation_odom_frame: odom
+      # With external /odom feeding RTAB-Map directly, rtabmap itself publishes
+      # the sole map -> odom correction, exactly like a standard Nav2 setup.
+      # The navigation_odom_bridge is ONLY needed when ICP owns a private
+      # trajectory in a separate frame (odom_icp); with matching frame names it
+      # fails the distinctness check and kills the launch, so keep it off.
+      navigation_odom_bridge: false
       # The Airy was rebuilt with POINT_TYPE=XYZIRT, which adds a per-point
       # "timestamp" (FLOAT64, lidar clock). Without it the undeskewed 10 Hz
       # scan smears while the robot moves and ICP registration collapses
       # (corrRatio ~0.025), corrupting the grid into black obstacle patches.
-      # Deskew the scan against ICP's own odometry, exactly like the Lite3's
+      # Deskew the scan against external odometry, exactly like the Lite3's
       # MID-360 (which ships per-point timestamps natively).
-      deskew_lidar: true
+      # TEMP: disabled due to QoS mismatch (deskew publishes RELIABLE, rtabmap
+      # subscribes BEST_EFFORT), causing complete data loss. Re-enable after
+      # fixing rtabmap's scan_cloud QoS or deskew node's output QoS.
+      deskew_lidar: false
       params_file: config/rtabmap_params.yaml
       sensor_providers:
         lidar3d: lynx_lidar
         imu: lynx_imu
-        # odom: lynx_quadruped
+        odom: lynx_quadruped
         # rgb: orbbec_camera
         # depth: orbbec_camera
 
-  # - name: nav2
-  #   url: https://github.com/syswonder/service-navigation-rbnx
-  #   branch: main
-  #   manifest: package_manifest.jetson-native.yaml
-  #   config:
-
-  #     params_file: config/nav2_params_lite3.yml
-
-  #     bt_xml_file: config/navigate.xml
-  #     use_sim_time: false
-  #     action_wait_s: 90.0
-  #     dynamic_speed:
-  #       # Match the effective DWB and velocity-smoother planar ceiling.
-  #       # The 75% startup limit is 0.2625 m/s.
-  #       max_linear_speed_mps: 0.35
-  #       default_percentage: 75
-  #       step_percentage: 20
-  #       min_percentage: 20
-  #     # Project the MID-360 cloud in base_link, remove returns inside the Soma
-  #     # footprint, reject isolated scan speckles, and publish the canonical
-  #     # /scanner/scan consumed by both Nav2 costmaps and the velocity guard.
-  #     # Keeping this conversion inside navigation avoids the incompatible QoS
-  #     # and duplicate scan publishers seen with the legacy pcld2lscan service.
-  #     scan_projection:
-  #       enabled: true
-  #       target_frame: base_link
-  #       # base_link is at the torso centre; URDF places the lidar 4.5 cm
-  #       # forward and 0.10 m above it.
-  #       # This band excludes the floor while retaining human legs and torso.
-  #       min_height_m: 0.10
-  #       max_height_m: 1.50
-  #       range_max_m: 12.0
-  #       # Upstream navigation uses Soma's physical footprint to derive its
-  #       # circular projection self-filter (about 0.36 m for Lite3).
-  #       self_filter_margin_m: 0.0
-  #     provider_ids:
-  #       map: mapping
-  #       # Nav2 consumes chassis velocities directly; Mapping's bridge uses the
-  #       # same stream only to express ICP localization as map -> odom.
-  #       odom: lynx_quadruped
-  #       scan_cloud: lynx_lidar
+  - name: nav2
+    url: https://github.com/syswonder/service-navigation-rbnx
+    branch: main
+    manifest: package_manifest.jetson-native.yaml
+    config:
+      params_file: config/nav2_params_lite3.yml
+      bt_xml_file: config/navigate.xml
+      use_sim_time: false
+      action_wait_s: 90.0
+      dynamic_speed:
+        # Match the effective DWB and velocity-smoother planar ceiling.
+        # The 75% startup limit is 0.2625 m/s.
+        max_linear_speed_mps: 0.35
+        default_percentage: 75
+        step_percentage: 20
+        min_percentage: 20
+      # Project the MID-360 cloud in base_link, remove returns inside the Soma
+      # footprint, reject isolated scan speckles, and publish the canonical
+      # /scanner/scan consumed by both Nav2 costmaps and the velocity guard.
+      # Keeping this conversion inside navigation avoids the incompatible QoS
+      # and duplicate scan publishers seen with the legacy pcld2lscan service.
+      scan_projection:
+        enabled: true
+        target_frame: base_link
+        # base_link is at the torso centre; URDF places the lidar 4.5 cm
+        # forward and 0.10 m above it.
+        # This band excludes the floor while retaining human legs and torso.
+        min_height_m: 0.10
+        max_height_m: 1.50
+        range_max_m: 12.0
+        # Upstream navigation uses Soma's physical footprint to derive its
+        # circular projection self-filter (about 0.36 m for Lite3).
+        self_filter_margin_m: 0.0
+      provider_ids:
+        map: mapping
+        # Nav2 consumes chassis velocities directly; Mapping's bridge uses the
+        # same stream only to express ICP localization as map -> odom.
+        odom: lynx_quadruped
+        scan_cloud: lynx_lidar
 
 skill: []

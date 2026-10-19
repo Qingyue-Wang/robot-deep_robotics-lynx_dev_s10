@@ -2,7 +2,7 @@
 <robot
   name="S10">
   <mujoco>
-    <compiler meshdir="./meshes/" balanceinertia="false" discardvisual="false"/>
+    <compiler meshdir="meshes/" balanceinertia="false" discardvisual="false"/>
   </mujoco>
   <link
     name="base_link">
@@ -26,7 +26,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/base_link.STL" />
+          filename="meshes/base_link.STL" />
       </geometry>
       <material
         name="">
@@ -75,7 +75,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fl_hipx.STL" />
+          filename="meshes/fl_hipx.STL" />
       </geometry>
       <material
         name="">
@@ -130,7 +130,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fl_hipy.STL" />
+          filename="meshes/fl_hipy.STL" />
       </geometry>
       <material
         name="">
@@ -191,7 +191,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fl_knee.STL" />
+          filename="meshes/fl_knee.STL" />
       </geometry>
       <material
         name="">
@@ -252,7 +252,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fl_wheel.STL" />
+          filename="meshes/fl_wheel.STL" />
       </geometry>
       <material
         name="">
@@ -305,7 +305,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fr_hipx.STL" />
+          filename="meshes/fr_hipx.STL" />
       </geometry>
       <material
         name="">
@@ -360,7 +360,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fr_hipy.STL" />
+          filename="meshes/fr_hipy.STL" />
       </geometry>
       <material
         name="">
@@ -421,7 +421,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fr_knee.STL" />
+          filename="meshes/fr_knee.STL" />
       </geometry>
       <material
         name="">
@@ -482,7 +482,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/fr_wheel.STL" />
+          filename="meshes/fr_wheel.STL" />
       </geometry>
       <material
         name="">
@@ -535,7 +535,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hl_hipx.STL" />
+          filename="meshes/hl_hipx.STL" />
       </geometry>
       <material
         name="">
@@ -590,7 +590,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hl_hipy.STL" />
+          filename="meshes/hl_hipy.STL" />
       </geometry>
       <material
         name="">
@@ -651,7 +651,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hl_knee.STL" />
+          filename="meshes/hl_knee.STL" />
       </geometry>
       <material
         name="">
@@ -712,7 +712,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hl_wheel.STL" />
+          filename="meshes/hl_wheel.STL" />
       </geometry>
       <material
         name="">
@@ -765,7 +765,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hr_hipx.STL" />
+          filename="meshes/hr_hipx.STL" />
       </geometry>
       <material
         name="">
@@ -820,7 +820,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hr_hipy.STL" />
+          filename="meshes/hr_hipy.STL" />
       </geometry>
       <material
         name="">
@@ -881,7 +881,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hr_knee.STL" />
+          filename="meshes/hr_knee.STL" />
       </geometry>
       <material
         name="">
@@ -942,7 +942,7 @@
         rpy="0 0 0" />
       <geometry>
         <mesh
-          filename="./meshes/hr_wheel.STL" />
+          filename="meshes/hr_wheel.STL" />
       </geometry>
       <material
         name="">
@@ -989,7 +989,8 @@
          is pitched +90 deg about Y so lidar "up" maps to base_link "forward". -->
     <origin
       xyz="0.22341 0.0 -0.0001"
-      rpy="0 1.5708 0" />
+      rpy="3.14159 -1.5708 0" />   
+      <!-- 0 1.5708 0 -->
     <parent
       link="base_link" />
     <child
