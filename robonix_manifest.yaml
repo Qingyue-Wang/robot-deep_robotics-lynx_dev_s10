@@ -72,9 +72,11 @@ primitive:
       nav_cmd_topic: /NAV_CMD
       gait_topic: /GAIT
       twist_in_topic: /cmd_vel
+      # 里程计完全来自 NX：rtabmap ICP（雷达+IMU）发布 /rtabmap/odom（odom→base_link），
+      # 这里重打 frame/stamp 后转发到 /odom 供 nav2 消费。不再订阅机器狗 /ODOM。
       odom_topic: /odom
-      odom_source_topic: /ODOM   # S10 LIO pose (stamped "map"); re-stamped to odom_frame below
-      odom_frame: odom           # frame the /odom capability is published in (continuous)
+      odom_source_topic: /outdoor/odom   # RTK+IMU odometry (no SLAM/ICP outdoors)
+      odom_frame: odom
       base_frame: base_link
       sentinel_timeout_s: 30.0
       speed_mps: 0.20
@@ -90,13 +92,6 @@ primitive:
       usage_mode: 1            # 1 = 导航模式 (required for /NAV_CMD)
 
 
-  - name: lynx_imu
-    path: ./primitives/primitive-lynx_imu
-    config:
-      imu_topic: /IMU           # /IMU_103 = lidar-internal IMU, alternative
-      qos: best_effort
-      sentinel_timeout_s: 15.0
-
   - name: lynx_lidar
     path: ./primitives/primitive-lynx_lidar
     config:
@@ -110,6 +105,19 @@ primitive:
       points_topic: /airy_201/points
       qos: reliable                     # rslidar_sdk publishes RELIABLE
       sentinel_timeout_s: 15.0          # stays Deferred until points actually flow
+
+  - name: lynx_imu
+    path: ./primitives/primitive-lynx_imu
+    config:
+      # 必须排在 lynx_lidar 之后：soma 按顺序起 primitive，lynx_imu 依赖
+      # lynx_lidar 启动的 rslidar 节点发布的 /airy_201/imu。
+      imu_topic: /airy_201/imu     # NX 直连：rslidar_sdk 解出前雷达内置 IMU（frame airy_201）
+      # BEST_EFFORT：rslidar 的 /airy_201/imu 是 RELIABLE，若 lynx_imu 也订 RELIABLE，
+      # 可靠协议的流控会把整条流压到回调能跟上的速率（实测 196Hz → ~5Hz），导致
+      # rtabmap 每隔一帧就丢一帧（"IMU newer than scan"）。BEST_EFFORT 不做流控，
+      # 回调偶发 GC 停顿只丢个别样本，IMU 仍以 ~190Hz 到达。订阅/发布两侧一致。
+      qos: best_effort              # no flow control; drops single samples, not the stream
+      sentinel_timeout_s: 60.0      # rslidar 节点启动约 20s，留足余量
 
   - name: lynx_camera
     path: ./primitives/primitive-lynx_camera
@@ -144,32 +152,33 @@ service:
     config:
       algo: rtabmap
       base_frame: base_link
-      odom_frame: odom              # external odom provider (lynx_quadruped) owns odom -> base_link
-      # odom_frame: odom                  # external odom provider (lynx_quadruped) owns odom -> base_link
+      # 无外部里程计提供者：rtabmap 用自己的 icp_odometry（雷达+IMU）解算
+      # odom→base_link，并发布唯一的 map→odom 修正。这就是 NX 自己的里程计。
+      odom_frame: odom
       use_sim_time: false
       map_id: test1
       map_mode: mapping  # localization / mapping
-      # With external /odom feeding RTAB-Map directly, rtabmap itself publishes
-      # the sole map -> odom correction, exactly like a standard Nav2 setup.
-      # The navigation_odom_bridge is ONLY needed when ICP owns a private
-      # trajectory in a separate frame (odom_icp); with matching frame names it
-      # fails the distinctness check and kills the launch, so keep it off.
+      # navigation_odom_bridge 保持 OFF：它会把 ICP 私有轨迹拼到底盘 nav odom 上，
+      # 而底盘 /ODOM 是自由积分漂移的，桥接会重新引入漂移。
       navigation_odom_bridge: false
-      # The Airy was rebuilt with POINT_TYPE=XYZIRT, which adds a per-point
-      # "timestamp" (FLOAT64, lidar clock). Without it the undeskewed 10 Hz
-      # scan smears while the robot moves and ICP registration collapses
-      # (corrRatio ~0.025), corrupting the grid into black obstacle patches.
-      # Deskew the scan against external odometry, exactly like the Lite3's
-      # MID-360 (which ships per-point timestamps natively).
-      # TEMP: disabled due to QoS mismatch (deskew publishes RELIABLE, rtabmap
-      # subscribes BEST_EFFORT), causing complete data loss. Re-enable after
-      # fixing rtabmap's scan_cloud QoS or deskew node's output QoS.
-      deskew_lidar: false
+      # The Airy was rebuilt with POINT_TYPE=XYZIRT, which appends a per-point
+      # "timestamp" field (FLOAT64). rtabmap's icp_odometry uses it — together
+      # with the IMU angular velocity on /IMU/framed — to deskew each scan
+      # INTERNALLY, undoing the motion smear that otherwise collapses
+      # registration while the robot moves (corrRatio ~0.025, "No matches
+      # available", yaw flips to -pi, then the ICP thread throws and takes the
+      # whole stack down).
+      # deskew_lidar=true ALSO tries to launch rtabmap_util's EXTERNAL
+      # lidar_deskewing node, but only when an odometry provider is configured
+      # (have_odom). With no odom provider the external node is skipped and the
+      # INTERNAL ICP deskew (deskewing:=true, IMU-based) is what actually runs —
+      # the old "QoS mismatch" note referred to the external node and is moot.
+      deskew_lidar: true
       params_file: config/rtabmap_params.yaml
       sensor_providers:
         lidar3d: lynx_lidar
         imu: lynx_imu
-        odom: lynx_quadruped
+        # odom 由 rtabmap 自己解算（ICP），不订阅底盘 /ODOM。
         # rgb: orbbec_camera
         # depth: orbbec_camera
 
@@ -208,8 +217,8 @@ service:
         self_filter_margin_m: 0.0
       provider_ids:
         map: mapping
-        # Nav2 consumes chassis velocities directly; Mapping's bridge uses the
-        # same stream only to express ICP localization as map -> odom.
+        # nav2 仍消费底盘 odom 契约（/odom）；lynx_quadruped 把 NX 的 ICP 里程计
+        # /rtabmap/odom 重打后转发到 /odom，所以 nav2 拿到的是 SLAM 修正后的里程计。
         odom: lynx_quadruped
         scan_cloud: lynx_lidar
 

@@ -11,3 +11,4 @@ d.py
 .sdk/
 frames*
 docs/
+*.md
