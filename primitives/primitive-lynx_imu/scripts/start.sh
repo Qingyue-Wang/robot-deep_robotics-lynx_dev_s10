@@ -23,13 +23,15 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# Publish the IMU extrinsic. The S10 leaves /IMU's frame_id empty, so main.py
-# re-stamps it as imu_link; this static TF makes that frame resolvable to
-# base_link for rtabmap's ICP odometry. Values are the S10 URDF imu_joint origin.
+# Publish the IMU extrinsic. The IMU is now the front Airy's built-in IMU, so
+# it lives at the lidar frame (airy_201): same translation/rotation as the
+# lynx_lidar front extrinsic (vertical mount, roll=pi, pitch=-pi/2). main.py
+# re-stamps the stream's frame_id to imu_link; this TF resolves it to base_link
+# for rtabmap's ICP odometry.
 if command -v ros2 >/dev/null 2>&1; then
   ros2 run tf2_ros static_transform_publisher \
-    --x 0.0075 --y -0.0373 --z 0.0556 \
-    --roll 1.57 --pitch 1.57 --yaw 0 \
+    --x 0.22341 --y 0.0 --z -0.0001 \
+    --roll 3.14159 --pitch -1.5708 --yaw 0 \
     --frame-id base_link --child-frame-id imu_link \
     --ros-args -r __node:=lynx_imu_tf &
   TF_PID=$!

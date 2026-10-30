@@ -2,7 +2,10 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="1" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <RateController hz="5.0">
+        <!-- 5 Hz replanning reshaped the path on every small costmap change
+             (the projected vertical-lidar scan is noisy), which the controller
+             then chased. 2 Hz keeps the path stable enough to drive straight. -->
+        <RateController hz="2.0">
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>

@@ -1,0 +1,22 @@
+manifestVersion: 1
+
+package:
+  name: robonix.primitive.deep_robotics.lynx_s10.fastlio
+  version: 0.1.0
+  vendor: robonix
+  description: Lynx S10 FAST-LIO odometry — front Airy lidar + its built-in IMU, corrected to odom -> base_link.
+  license: Apache-2.0
+  tags: [primitive, odom, fastlio, lidar, imu, deep_robotics, lynx_s10, ros2]
+  maintainers:
+    - ZLC(mujue) <mujue155@gmail.com>
+
+# cap_id is what shows up in `rbnx caps`. Matches the Primitive id in main.py.
+capability_id: lynx_fastlio
+
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+
+# The chassis-odom contract is the built-in one (no package-local TOML):
+# robonix/primitive/chassis/odom, nav_msgs/Odometry, odom -> base_link.
+capabilities:
+  - name: robonix/primitive/chassis/odom

@@ -112,13 +112,21 @@ controller_server:
       # narrow doorway too expensive. Global inflation already biases the plan
       # toward the doorway center; this critic only refines the local trajectory.
       BaseObstacle.scale: 0.02
-      PathAlign.scale: 0.1
-      # PathAlign.forward_point_distance: 0.1
-      # PathAlign.forward_preference: true
-      GoalAlign.scale: 0.2
-      # GoalAlign.forward_point_distance: 0.1
-      # GoalAlign.forward_preference: true
-      PathDist.scale: 0.5
+      # Straight-line tracking. PathAlign is the heading-vs-path critic; at 0.1
+      # it was five times weaker than PathDist, so the robot happily cut
+      # corners and approached the path diagonally — an S-curve even on a
+      # straight plan. Nav2's default balance is PathAlign:PathDist = 1:1;
+      # give alignment the edge here and sample the path heading a little
+      # further ahead so a noisy grid plan cannot wiggle the heading.
+      PathAlign.scale: 1.0
+      PathAlign.forward_point_distance: 0.2
+      PathAlign.forward_preference: true
+      GoalAlign.scale: 0.3
+      GoalAlign.forward_point_distance: 0.1
+      GoalAlign.forward_preference: true
+      # PathDist keeps the trajectory on the line; keep it above GoalDist so
+      # the controller cannot shortcut toward the goal.
+      PathDist.scale: 0.8
       GoalDist.scale: 0.5
       RotateToGoal.xy_goal_tolerance: 0.20
       RotateToGoal.yaw_goal_tolerance: 0.20

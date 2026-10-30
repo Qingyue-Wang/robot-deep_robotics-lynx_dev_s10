@@ -1,0 +1,158 @@
+# 联调栈：山猫底盘（ROS 2）+ Piper 臂 + 腕上 D435i + 深度几何抓取技能。
+#
+# 包全部复用 console 部署里已经验证过的那几份（绝对路径），本文件只负责
+# 把它们和 chassis_only 里的 ROS 2 底盘拼到同一个 atlas 下——两边不能各起
+# 一套 atlas（50051 只有一个）。
+#
+# 依赖：
+#   source /opt/ros/humble/setup.bash
+#   source /home/dog/ros2_ws/drdds_humble_ws/install/setup.bash
+# 启动：
+#   ROBONIX_MANIFEST=$PWD/robonix_manifest.grasp_integration.yaml ./start.sh
+#
+# 抓取还需要宿主上的视觉服务（127.0.0.1:8772）：
+#   bash /home/dog/wfw/piper-standard/host-services/grasp-vision/run_grasp_vision_server.sh
+manifestVersion: 1
+name: robonix-s10-grasp-integration
+catalog:
+  name: robonix.robot.deep_robotics.lynx_s10.grasp_integration
+  version: 0.1.0
+  description: S10 chassis (ROS 2) + Piper arm + D435i + grasp skill, host-local.
+  license: Apache-2.0
+
+env:
+  LOG: "INFO"
+  ROS_DOMAIN_ID: "0"
+
+system:
+  atlas: {listen: 0.0.0.0:50051, log: info}
+  soma:
+    listen: 0.0.0.0:50091
+    robot_yaml: /home/dog/wfw/piper-standard/containers/s10-dev/robot-deep_robotics-lynx_s10/soma.yaml
+  executor: {listen: 0.0.0.0:50061, log: info}
+  pilot:
+    listen: 0.0.0.0:50071
+    log: info
+    vlm:
+      upstream: ${VLM_BASE_URL}
+      api_key: ${VLM_API_KEY}
+      model: ${VLM_MODEL}
+      api_format: openai
+  liaison: {listen: 0.0.0.0:50081, log: info}
+
+primitive:
+  # ── 底盘：ROS 2 drdds 版 ──────────────────────────────────────────────
+  - name: lynx_quadruped
+    path: ./primitives/primitive-lynx_quadruped
+    config:
+      motion_state_topic: /MOTION_STATE
+      motion_info_topic: /MOTION_INFO
+      nav_cmd_topic: /NAV_CMD
+      gait_topic: /GAIT
+      twist_in_topic: /cmd_vel
+      odom_topic: /odom
+      odom_source_topic: /rtabmap/odom
+      odom_frame: odom
+      base_frame: base_link
+      sentinel_timeout_s: 30.0
+      speed_mps: 0.20
+      ang_speed_rps: 0.60
+      default_duration_sec: 1.0
+      rotate_tolerance_deg: 3.0
+      posture_wait_s: 8.0
+      nav_gait: 12290
+      usage_mode_ip: 10.21.33.103
+      usage_mode_port: 30004
+      usage_mode_transport: udp
+      usage_mode: 1
+      require_usage_mode_check: false
+
+  # ── 腕上 D435i（manual-AE；console 部署同款配置）────────────────────
+  - name: realsense_camera
+    path: /home/dog/.local/share/robonix-console/deployments/default/packages/primitive-intel-d435i-manual-ae-camera-rbnx
+    config:
+      camera_name: camera_435i
+      width: 1280
+      height: 720
+      fps: 30
+      exposure_mode: manual
+      color_exposure: 350.0
+      depth_exposure: 10000.0
+      depth_gain: 16.0
+      laser_power: 150.0
+      sentinel_timeout_s: 30.0
+
+  # ── Piper 臂 + 夹爪 ──────────────────────────────────────────────────
+  - name: piper_ctl
+    path: /home/dog/.local/share/robonix-console/deployments/default/packages/primitive-agilex-piper-arm-rbnx
+    config:
+      can_port: can2
+      can_bitrate: 1000000
+      # can2（USB-CAN, 1-4.1.1）需要 root 才能 up；这里不自动跑
+      # can_activate.sh（它会卡在 sudo 密码提示上）。启动前手动执行：
+      #   sudo ip link set can2 type can bitrate 1000000 && sudo ip link set can2 up
+      auto_can_setup: false
+      auto_enable: true
+      gripper_exist: true
+      gripper_val_mutiple: 2
+      sentinel_timeout_s: 30.0
+
+  - name: piper_description
+    path: /home/dog/.local/share/robonix-console/deployments/default/packages/primitive-agilex-piper-description-rbnx
+    config: {}
+
+service: []
+
+skill:
+  - name: s10_grasp_dev
+    path: /home/dog/.local/share/robonix-console/deployments/default/packages/skill-s10-grasp-dev-rbnx
+    config:
+      calib_source: inline
+      calib:
+        camera_matrix:
+          - [902.218237, 0, 657.76298]
+          - [0, 901.975088, 365.019295]
+          - [0, 0, 1]
+        dist_coeffs: [0.120308878, -0.348117232, 0.00191494011, -0.000446665883, 0.245309989]
+        gripper_camera:
+          - [0.0469958243, 0.926610091, 0.373075237, -0.075287674]
+          - [-0.998894921, 0.0438092224, 0.0170202202, 0.00209393394]
+          - [-0.000573028225, -0.373462839, 0.927644964, 0.0421090704]
+          - [0, 0, 0, 1]
+        tip_in_flange: [0.0, 0.0, 0.14287]
+        observe_joints_deg: [1.13, 86.36, -97.62, 6.34, 69.99, 0]
+        gripper_size: {clamp_length_mm: 72, opening_mm: 102, closed_gap_mm: 0, source: manual_caliper}
+        correction:
+          zeros_deg: [0.0218861594, -0.0470922245, -0.0250331283, -4.45973159, 1.46105072, 0]
+          offsets_m:
+            - [0, 0, 0]
+            - [0.00337381468, -0.000461342045, 6.53794474e-05]
+            - [-0.000271648286, 0.00133696179, 6.56163096e-05]
+            - [0.00484112036, 6.55071581e-05, 0.000306604417]
+            - [-0.00214301035, -0.00030658365, -0.00033878254]
+            - [0, 0, 0]
+      table_height_m: -0.0656918955
+      object_size_mm: {length_mm: 40, width_mm: 40, height_mm: 30}
+      # 多观察位扫描：标称拍照位"这一眼没量出来"时，自动换几个观察位再看，找到即停；
+      # 全都看不准则回标称位并如实报错。默认值在 grasp_skill/observe_scan.py，这里只写
+      # 要覆盖的键。**不想要这个行为就设 enabled: false**（退回"只在标称位看一眼"）。
+      observe_scan:
+        enabled: true
+        max_views: 4
+        # 额外的观察锚点：标称位周围扫完还看不准，就走到这些位姿各看一眼、再围它们扫。
+        # **每个锚点都各自套一遍"标定板扫描"那套多观察位算法**（撒关节角→正运动学筛→
+        # 挑彼此差异大的），所以这里只是一个"合格观察姿势"，不是最终要拍的那一眼。
+        # 第二个观察位：2026-10-29 09:24 手动拖臂记录。
+        anchors_deg:
+          - [-2.49, 73.25, -100.42, 6.41, 56.16, -1.18]
+        # 其它可调键（不写就用默认值）：
+        #   distance_m: [0.30, 1.60]      # 相机到支撑面的距离范围（米）
+        #   view_angle_deg: [0.0, 70.0]   # 光轴偏离竖直的角度范围（0=正俯视）
+        #   aim_radius_m: [0.08, 0.62]    # 视线落点离基座的水平半径范围（米）
+        #   spread_levels_deg: [[12, 8, 8, 18, 15, 25], [30, 18, 18, 35, 30, 45]]
+        #                                 # 在标称位姿附近撒关节角的幅度（两级，逐级放大）
+        #   max_deviation_deg: 45.0       # 相对标称位姿的最大关节偏移（度）
+        #   min_rotation_gap_deg: 12.0    # 选出的观察位之间，相机朝向至少差这么多（度）
+        #   min_aim_gap_m: 0.10           # 视线落点之间至少差这么远（米）
+        #   aim_forward_min_m: 0.0        # 落点 x 下限（米）；+x 是正前方，默认只扫前半平面
+      out_dir: /home/dog/.local/share/robonix-console/deployments/default/debug/grasp

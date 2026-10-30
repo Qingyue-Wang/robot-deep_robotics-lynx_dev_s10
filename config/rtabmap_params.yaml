@@ -15,12 +15,18 @@ RGBD/CreateOccupancyGrid: true
 # representation of the same walls into the Nav2 map.
 Grid/Sensor: 0
 Grid/FromDepth: false
-Grid/RangeMax: 6.0
+# Cap the map extent and coarsen the grid: the 5 cm cell at 6 m range made the
+# occupancy grid grow unbounded as the robot moved, driving Maps update from
+# ~0.01 s to ~9 s and eventually OOM-killing rtabmap (see rbnx-boot/logs/mapping.log).
+Grid/RangeMax: 4.0
 Grid/RangeMin: 0.25
-Grid/CellSize: 0.05
+Grid/CellSize: 0.10
 Grid/RayTracing: true
 Grid/3D: false
-Grid/NormalsSegmentation: true
+# Vertical Airy scan has no local floor patch to estimate a normal from (see the
+# header note), so the normal-based classifier paints the floor black AND doubles
+# grid-build cost. Keep height-thresholding only.
+Grid/NormalsSegmentation: false
 
 # TEMPORARY TEST: If ground z is actually POSITIVE (TF rotation flipped it),
 # this large threshold should make the floor white again. If it works, the root
@@ -49,13 +55,22 @@ RGBD/AngularUpdate: 0.05
 RGBD/LinearUpdate: 0.05
 # Mem/IncrementalMemory remains mode-owned by service-map-rbnx: true while
 # mapping and false while localizing. Do not override it in this shared file.
-Mem/NotLinkedNodesKept: true
+# Drop nodes that never got linked into the graph. With no image input the
+# bag-of-words loop closure is disabled, so unlinked nodes otherwise stay in
+# working memory forever and balloon RAM on a long mapping run.
+Mem/NotLinkedNodesKept: false
 Vis/MinInliers: 12
 Vis/MaxDepth: 3.0
 # At the recommended 0.10-0.15 m/s manual mapping speed, 1 Hz gives 10-15 cm
 # between updates while leaving enough Jetson capacity for RGB-D/scan-cloud
 # synchronization and ICP odometry.
 Rtabmap/DetectionRate: 1.0
+
+# The Airy publishes a DENSE 3D cloud (dense_points:true, XYZIRT, ~10 Hz) and
+# rtabmap defaults to scan_cloud_max_points=0 (no downsampling), so every
+# keyframe stores the full cloud in memory. Cap the per-scan points to bound
+# per-node memory — still far more than the 2D grid at CellSize=0.10 can use.
+scan_cloud_max_points: 20000
 
 # Publish null (inflated covariance) when ICP registration is lost, so RTAB-Map
 # re-localizes via visual loop closure instead of silently freezing on the last

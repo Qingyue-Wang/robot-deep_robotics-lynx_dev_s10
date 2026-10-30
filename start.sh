@@ -46,7 +46,12 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
 
-  if [[ "$stack_started" == "1" ]]; then
+  # `rbnx boot` handles Ctrl-C itself: it tears the children down and removes
+  # state.json. Calling `rbnx shutdown` again then just prints
+  # "no boot state ... has `rbnx boot` been run from this manifest?".
+  # Only run the explicit shutdown when a boot actually left state behind
+  # (e.g. the boot process crashed).
+  if [[ "$stack_started" == "1" && -f "$DEPLOY_DIR/rbnx-boot/state.json" ]]; then
     rbnx shutdown -f "$MANIFEST" || true
   fi
 

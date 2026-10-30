@@ -1,0 +1,55 @@
+diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
+index 3e0d0f2..c895f2a 100644
+--- a/src/laserMapping.cpp
++++ b/src/laserMapping.cpp
+@@ -290,6 +290,12 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
+     {
+         std::cerr << "lidar loop back, clear buffer" << std::endl;
+         lidar_buffer.clear();
++        // S10 patch: keep the timestamp queue aligned with the scan queue and
++        // drop any in-flight selection. Clearing only lidar_buffer (as the
++        // upstream port does) leaves stale timestamps that the sync step then
++        // pairs with newer clouds, stamping odometry with an old time.
++        time_buffer.clear();
++        lidar_pushed = false;
+     }
+     if (is_first_lidar)
+     {
+@@ -398,6 +404,22 @@ bool sync_packages(MeasureGroup &meas)
+         return false;
+     }
+ 
++    // S10 patch: bound the input queue. A startup backlog (scans buffered
++    // while the IMU stream initialises) or a temporarily slow mapping loop
++    // would otherwise never drain when the loop runs at the lidar rate, so
++    // /Odometry — and the odom -> base_link TF derived from it — stays
++    // seconds behind the live scan stream and RTAB-Map cannot look up a pose
++    // at the scan timestamp. Keep only the newest scan and re-select it.
++    if (lidar_buffer.size() > 3)
++    {
++        while (lidar_buffer.size() > 1)
++        {
++            lidar_buffer.pop_front();
++            time_buffer.pop_front();
++        }
++        lidar_pushed = false;
++    }
++
+     /*** push a lidar scan ***/
+     if(!lidar_pushed)
+     {
+@@ -939,7 +961,13 @@ public:
+         {
+             sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS(), standard_pcl_cbk);
+         }
+-        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
++        // S10 patch: subscribe IMU BEST_EFFORT. A RELIABLE reader on a 200 Hz
++        // stream makes Fast DDS apply flow control, and a stalled reader — for
++        // example a leftover node that was never reaped — can throttle the
++        // driver's writer for every reader, so this node never initialises and
++        // publishes no /Odometry. Losing occasional samples is harmless for
++        // the EKF; losing the whole stream is not.
++        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS(), imu_cbk);
+         pubLaserCloudFull_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 20);
+         pubLaserCloudFull_body_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 20);
+         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);
