@@ -192,6 +192,8 @@ service:
       bt_xml_file: config/navigate.xml
       use_sim_time: false
       action_wait_s: 90.0
+      # Gated by scripts/odom_guard.py; see robonix_manifest.yaml.
+      velocity_output_topic: /cmd_vel_service
       dynamic_speed:
         # Match the effective DWB and velocity-smoother planar ceiling.
         # The 75% startup limit is 0.2625 m/s.

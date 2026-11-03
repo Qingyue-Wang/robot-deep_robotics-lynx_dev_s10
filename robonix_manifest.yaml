@@ -123,6 +123,16 @@ primitive:
       usage_mode: 1            # 1 = 导航模式 (required for /NAV_CMD)
       usage_mode_strict: false # true = 使用模式无法确认时 move/posture 报错
       usage_mode_retry_s: 300.0 # 失败后 5min 内不再重试，避免每条指令多等 ~4s (重启即重置)
+      # 任何底盘运动（posture 的站/趴/RL/标零、move、nav2 的 /cmd_vel）前，
+      # 都先把机械臂收回 home：臂伸在外面时底盘一动重心就偏，机器人会翻。
+      # 收不回去就拒绝底盘运动（damping 软急停除外，必须立刻生效）。
+      arm_home_before_motion: true
+      arm_home_before_stand: true   # 兼容旧键
+      arm_joint_command_topic: /arm/joint_command
+      arm_joint_states_topic: /arm/joint_states_single
+      arm_home_deg: [0, 0, 0, 0, 25, 0]
+      arm_home_tol_deg: 3.0
+      arm_home_timeout_s: 12.0
 
 # ── 腕上 D435i（manual-AE；console 部署同款配置）────────────────────
   - name: realsense_camera
@@ -275,6 +285,11 @@ service:
       bt_xml_file: config/navigate.xml
       use_sim_time: false
       action_wait_s: 90.0
+      # Navigation's final velocity goes to /cmd_vel_service, NOT directly to
+      # /cmd_vel: scripts/odom_guard.py (started by start.sh) gates it and is
+      # the only publisher on /cmd_vel (chassis twist_in). While /odom is
+      # stale/jumping the gate zeroes the base and cancels the nav goal.
+      velocity_output_topic: /cmd_vel_service
       dynamic_speed:
         # Match the effective DWB and velocity-smoother planar ceiling.
         # The 75% startup limit is 0.2625 m/s.
@@ -365,4 +380,13 @@ skill:
         #   min_aim_gap_m: 0.10           # 视线落点之间至少差这么远（米）
         #   aim_forward_min_m: 0.0        # 落点 x 下限（米）；+x 是正前方，默认只扫前半平面
       out_dir: /home/dog/.local/share/robonix-console/deployments/default/debug/grasp
+      # 够不着时的退避重试：臂回 home → 站立 → 前进 forward_m → 趴下 → 重新观察抓取。
+      # 只在 plan_reach 失败 / 下爪时从悬停位解不到抓取点（out_of_reach）时触发；
+      # 看不清、量不准、被挡住不重试。底盘移动要求 RL 控制，所以必须站-趴切换。
+      backoff:
+        enabled: true
+        max_attempts: 1        # 最多把狗往前挪几次
+        forward_m: 0.10
+        settle_s: 0.5          # 每次姿态切换后的稳定时间
+        home_on_failure: true  # 最终仍失败时把臂收回 home，别举着臂去导航
 

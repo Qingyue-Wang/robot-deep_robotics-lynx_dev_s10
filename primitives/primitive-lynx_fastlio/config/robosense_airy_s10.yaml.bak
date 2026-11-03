@@ -1,0 +1,73 @@
+# FAST-LIO parameters for the Lynx S10's FRONT RoboSense Airy (airy_201).
+#
+# The Airy is mounted VERTICALLY on the head (pitch +90 deg in base_link), so
+# its mechanical scan is a vertical disc rather than a horizontal ring. Its
+# built-in IMU is the LIO body; both the point cloud and the IMU stream are
+# stamped `airy_201` by rslidar_sdk, but the IMU sensor axes are rotated
+# relative to the lidar axes — that is `mapping.extrinsic_R` below (the
+# standard Airy internal LiDAR->IMU calibration).
+#
+# Requirements on the rslidar_sdk side (robot's ~/rslidar_ws):
+#   * POINT_TYPE = XYZIRT  (per-point timestamp field)
+#   * ts_first_point: true (timestamp is relative to the first point)
+# Without ts_first_point the driver stamps points from the lidar clock and
+# FAST-LIO's odometry/TF timestamps drift away from the host ROS clock.
+/**:
+    ros__parameters:
+        feature_extract_enable: false
+        # The Airy currently delivers ~54k points/frame (it was ~22k when the
+        # original value of 3 was chosen). Every 3rd point meant ~18k points
+        # into the EKF, the node sat at ~85% of a core, and during navigation
+        # it lost scan matching (No Effective Points -> pose jumps -> the
+        # velocity guard cancelling near the goal). Every 6th point puts the
+        # LIO back at the point budget it previously ran stably at; the mapping
+        # service still consumes the raw cloud, so the occupancy grid is
+        # unaffected.
+        point_filter_num: 6
+        max_iteration: 3
+        filter_size_surf: 0.1
+        filter_size_map: 0.1
+        cube_side_length: 1000.0
+        runtime_pos_log_enable: false
+        map_file_path: ""
+
+        common:
+            lid_topic: "/airy_201/points"
+            imu_topic: "/airy_201/imu"
+            time_sync_en: false
+            time_offset_lidar_to_imu: 0.0
+
+        preprocess:
+            lidar_type: 5            # RoboSense (M1 / E1R / Airy)
+            scan_line: 96
+            scan_rate: 10
+            timestamp_unit: 0        # 0-second, 1-millisecond, 2-microsecond, 3-nanosecond
+            blind: 0.0
+
+        mapping:
+            acc_cov: 0.1
+            gyr_cov: 0.1
+            b_acc_cov: 0.0001
+            b_gyr_cov: 0.0001
+            fov_degree: 360.0        # Airy is a 360-deg mechanical lidar
+            det_range: 100.0
+            extrinsic_est_en: false
+            # LiDAR pose in the IMU body frame (standard Airy internal IMU
+            # orientation). The translation is a few millimetres; recalibrate
+            # with LI-Init if the odometry shows a yaw/height bias.
+            extrinsic_T: [0.00425, 0.00418, -0.00446]
+            extrinsic_R: [0.0, -1.0, 0.0,
+                          -1.0, 0.0, 0.0,
+                           0.0, 0.0, -1.0]
+
+        publish:
+            path_en: false
+            effect_map_en: false
+            map_en: false
+            scan_publish_en: false
+            dense_publish_en: false
+            scan_bodyframe_pub_en: false
+
+        pcd_save:
+            pcd_save_en: false
+            interval: -1

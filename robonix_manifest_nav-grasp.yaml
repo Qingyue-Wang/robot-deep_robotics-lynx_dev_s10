@@ -270,6 +270,8 @@ service:
       bt_xml_file: config/navigate.xml
       use_sim_time: false
       action_wait_s: 90.0
+      # Gated by scripts/odom_guard.py; see robonix_manifest.yaml.
+      velocity_output_topic: /cmd_vel_service
       dynamic_speed:
         # Match the effective DWB and velocity-smoother planar ceiling.
         # The 75% startup limit is 0.2625 m/s.
@@ -357,4 +359,11 @@ skill:
         #   min_aim_gap_m: 0.10           # 视线落点之间至少差这么远（米）
         #   aim_forward_min_m: 0.0        # 落点 x 下限（米）；+x 是正前方，默认只扫前半平面
       out_dir: /home/dog/.local/share/robonix-console/deployments/default/debug/grasp
+      # 够不着时：回 home → 站立 → 前进 10cm → 趴下 → 再抓（见 grasp_skill/backoff.py）。
+      backoff:
+        enabled: true
+        max_attempts: 1
+        forward_m: 0.10
+        settle_s: 0.5
+        home_on_failure: true
 

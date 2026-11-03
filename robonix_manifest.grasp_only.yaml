@@ -130,3 +130,7 @@ skill:
         #   min_aim_gap_m: 0.10           # 视线落点之间至少差这么远（米）
         #   aim_forward_min_m: 0.0        # 落点 x 下限（米）；+x 是正前方，默认只扫前半平面
       out_dir: /home/dog/.local/share/robonix-console/deployments/default/debug/grasp
+      # 本清单没有底盘原语，退避重试（前进 10cm）用不了；臂仍会在最终够不着时回 home。
+      backoff:
+        enabled: false
+        home_on_failure: true

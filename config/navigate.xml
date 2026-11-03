@@ -2,14 +2,36 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="1" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <!-- 5 Hz replanning reshaped the path on every small costmap change
-             (the projected vertical-lidar scan is noisy), which the controller
-             then chased. 2 Hz keeps the path stable enough to drive straight. -->
+        <!-- The RateController only polls the plan conditions; the global
+             path itself is recomputed only when the goal changes, the path
+             becomes invalid, or it is older than 10 s. Replanning at a fixed
+             2 Hz (and 5 Hz before that) reshaped the path on every noisy
+             projected-scan update, and the controller chased each new shape
+             with a steering correction: the "keeps turning" behaviour. -->
         <RateController hz="2.0">
-          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
-            <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
-            <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
-          </RecoveryNode>
+          <Fallback name="PlanOnlyWhenNeeded">
+            <!-- Keep the current path while it is still fresh, the goal has
+                 not changed, and it is still collision-free. Replanning at
+                 2 Hz made the noisy projected scan reshape the path every
+                 tick, and the controller chased each new shape with a steering
+                 correction — the "keeps turning" behaviour. -->
+            <ReactiveSequence name="KeepCurrentPath">
+              <Inverter>
+                <PathExpiringTimer seconds="10" path="{path}"/>
+              </Inverter>
+              <Inverter>
+                <GlobalUpdatedGoal/>
+              </Inverter>
+              <IsPathValid path="{path}"/>
+            </ReactiveSequence>
+            <!-- No path smoothing: the dog can rotate in place, so a corner
+                 should stay a corner and be executed as an explicit turn, not
+                 rounded into an arc the robot has to roll through. -->
+            <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </RecoveryNode>
+          </Fallback>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
           <FollowPath path="{path}" controller_id="FollowPath"/>
