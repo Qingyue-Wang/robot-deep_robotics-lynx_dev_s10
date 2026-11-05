@@ -1,0 +1,19 @@
+common:
+  msg_source: 1
+  send_point_cloud_ros: true
+lidar:
+- driver:
+    dense_points: true
+    difop_port: 7781
+    group_address: 224.10.10.201
+    host_address: 10.21.33.200
+    imu_port: 6681
+    lidar_type: RSAIRY
+    max_distance: 200
+    min_distance: 0.2
+    msop_port: 6691
+    use_lidar_clock: false
+  ros:
+    ros_frame_id: airy_201
+    ros_send_imu_data_topic: /airy_201/imu
+    ros_send_point_cloud_topic: /airy_201/points

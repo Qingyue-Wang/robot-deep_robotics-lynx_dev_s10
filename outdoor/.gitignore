@@ -1,0 +1,15 @@
+/.venv/
+/.robonix/
+/rbnx-build/
+/run/
+/logs/
+/data/
+/backups/
+/packages/
+/framework/
+/source-lock.json
+/field-source-manifest.json
+/config/secrets.json
+/config/gnss.base.yaml
+__pycache__/
+*.pyc
