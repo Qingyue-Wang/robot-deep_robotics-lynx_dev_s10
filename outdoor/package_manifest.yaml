@@ -1,0 +1,19 @@
+manifestVersion: 1
+package:
+  name: robonix.robot.lynx.outdoor.hardware
+  version: 0.1.0
+  description: Deployment-owned front lidar and guarded chassis bridge without legacy navigation dependencies.
+  license: MIT
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+capabilities:
+  - name: robonix/primitive/driver
+    transport: grpc
+    path: capabilities/driver.v1.toml
+  - name: robonix/primitive/lidar/lidar3d
+    transport: ros2
+  - name: robonix/primitive/chassis/twist_in
+    transport: ros2
+  - name: robonix/primitive/chassis/gait_in
+    transport: ros2
+    path: capabilities/gait_in.v1.toml

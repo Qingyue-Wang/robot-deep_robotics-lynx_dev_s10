@@ -397,3 +397,11 @@ Please include the Robonix version, host platform, robot firmware information, a
 ## License
 
 Apache-2.0
+
+## Outdoor route mapping and navigation
+
+The [outdoor deployment](outdoor/README.md) assembles the current mapping and
+navigation services with GNSS/IMU localization and one Scene. It supports new
+site recordings, reviewed network supplementation and feedback-confirmed gait
+changes without the legacy outdoorNav stack or campus map. Motion remains
+disabled in its default check profile.

@@ -1,0 +1,83 @@
+# Lynx S10 RTAB-Map parameters. FRONT Airy (airy_201) is VERTICALLY mounted (pitch +90°),
+# scans a vertical disc (floor ↔ ceiling), unlike Lite3's horizontal MID-360. Ground
+# filtering uses plain height-thresholding (Grid/MaxGroundHeight below), NOT
+# Grid/NormalsSegmentation — see that parameter's comment for why the normal-based
+# classifier misreads this scan geometry and was painting the whole floor black.
+# The vertical scan also gives limited forward coverage for 2D mapping.
+#
+# ICP owns the private odom_icp trajectory; the deployment bridge converts its corrected
+# map pose to Nav2's chassis-owned odom frame without creating a second odom -> base_link
+# TF publisher.
+RGBD/CreateOccupancyGrid: true
+
+# Use only the Airy lidar to build the 2D occupancy grid. RGB-D (if enabled later) remains
+# available to RTAB-Map and scene perception, but does not write a second, extrinsic-sensitive
+# representation of the same walls into the Nav2 map.
+Grid/Sensor: 0
+Grid/FromDepth: false
+# Cap the map extent and coarsen the grid: the 5 cm cell at 6 m range made the
+# occupancy grid grow unbounded as the robot moved, driving Maps update from
+# ~0.01 s to ~9 s and eventually OOM-killing rtabmap (see rbnx-boot/logs/mapping.log).
+Grid/RangeMax: 4.0
+Grid/RangeMin: 0.25
+Grid/CellSize: 0.10
+Grid/RayTracing: true
+Grid/3D: false
+# Vertical Airy scan has no local floor patch to estimate a normal from (see the
+# header note), so the normal-based classifier paints the floor black AND doubles
+# grid-build cost. Keep height-thresholding only.
+Grid/NormalsSegmentation: false
+
+# TEMPORARY TEST: If ground z is actually POSITIVE (TF rotation flipped it),
+# this large threshold should make the floor white again. If it works, the root
+# cause is the airy_201 TF (start.sh vs. actual tf2_echo mismatch).
+Grid/MaxObstacleHeight: 1.5
+Grid/MaxGroundHeight: 0.1
+
+# Official static length/width are 0.61 x 0.37 m. Use the larger authoritative
+# gait-aware envelope declared in soma.yaml to remove body/leg returns before
+# writing the occupancy grid.
+Grid/FootprintLength: 0.68
+Grid/FootprintWidth: 0.46
+
+# Use MID-360 ICP for pose registration; RGB-D remains enabled for occupancy
+# generation. Force3DoF prevents gait roll/pitch from bending the map.
+Reg/Strategy: 1
+Reg/Force3DoF: true
+Optimizer/Strategy: 1
+Optimizer/GravitySigma: 0
+RGBD/NeighborLinkRefining: true
+RGBD/ProximityBySpace: true
+# Limit spatial proximity search to the nearest path neighbor. This preserves
+# useful corridor loop closures while reducing ambiguous parallel-wall links.
+RGBD/ProximityPathMaxNeighbors: 1
+RGBD/AngularUpdate: 0.05
+RGBD/LinearUpdate: 0.05
+# Mem/IncrementalMemory remains mode-owned by service-map-rbnx: true while
+# mapping and false while localizing. Do not override it in this shared file.
+# Drop nodes that never got linked into the graph. With no image input the
+# bag-of-words loop closure is disabled, so unlinked nodes otherwise stay in
+# working memory forever and balloon RAM on a long mapping run.
+Mem/NotLinkedNodesKept: false
+Vis/MinInliers: 12
+Vis/MaxDepth: 3.0
+# At the recommended 0.10-0.15 m/s manual mapping speed, 1 Hz gives 10-15 cm
+# between updates while leaving enough Jetson capacity for RGB-D/scan-cloud
+# synchronization and ICP odometry.
+Rtabmap/DetectionRate: 1.0
+
+# The Airy publishes a DENSE 3D cloud (dense_points:true, XYZIRT, ~10 Hz) and
+# rtabmap defaults to scan_cloud_max_points=0 (no downsampling), so every
+# keyframe stores the full cloud in memory. Cap the per-scan points to bound
+# per-node memory — still far more than the 2D grid at CellSize=0.10 can use.
+scan_cloud_max_points: 20000
+
+# Publish null (inflated covariance) when ICP registration is lost, so RTAB-Map
+# re-localizes via visual loop closure instead of silently freezing on the last
+# pose after a manual carry. NOTE: the navigation odom bridge does not yet filter
+# null samples, so a transient map jump may occur until re-localization lands.
+publish_null_when_lost: true
+
+Icp/MaxCorrespondenceDistance: 0.2
+Icp/MaxTranslation: 0.5
+Icp/MaxRotation: 0.78

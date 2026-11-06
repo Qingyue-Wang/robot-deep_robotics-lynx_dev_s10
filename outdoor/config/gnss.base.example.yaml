@@ -1,0 +1,12 @@
+# Copy to gnss.base.yaml and fill site settings; password stays in secrets.json.
+serial: {port: auto, baud: 115200}
+frame_id: gnss_link
+fix_timeout: 3.0
+ntrip:
+  host: ""
+  port: 2101
+  user: ""
+  mount: ""
+  allow_empty_password: false
+  gga_interval: 5
+  stream_timeout: 15

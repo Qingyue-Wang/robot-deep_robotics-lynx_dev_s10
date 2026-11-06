@@ -1,0 +1,68 @@
+# 本机最小栈：ROS 2 版山猫底盘 + pilot/liaison，不含雷达/IMU/相机/服务。
+#
+# 用途：在 AGX Orin（10.21.33.100）上验证 posture / get_posture / move，
+# 以及配合有效 VLM key 使用 `rbnx chat`。
+#
+# 依赖：
+#   source /opt/ros/humble/setup.bash
+#   source /home/dog/ros2_ws/drdds_humble_ws/install/setup.bash
+# 启动：
+#   ROBONIX_MANIFEST=$PWD/robonix_manifest.chassis_only.yaml ./start.sh
+manifestVersion: 1
+name: robonix-s10-chassis-only
+catalog:
+  name: robonix.robot.deep_robotics.lynx_s10.chassis_only
+  version: 0.1.0
+  description: Host-local Lynx S10 ROS 2 chassis stack (no sensors/services).
+  license: Apache-2.0
+
+env:
+  LOG: "INFO"
+  ROS_DOMAIN_ID: "0"
+
+system:
+  atlas: {listen: 0.0.0.0:50051, log: info}
+  soma:
+    listen: 0.0.0.0:50091
+    robot_yaml: /home/dog/wfw/piper-standard/containers/s10-dev/robot-deep_robotics-lynx_s10/soma.yaml
+  executor: {listen: 0.0.0.0:50061, log: info}
+  pilot:
+    listen: 0.0.0.0:50071
+    log: info
+    vlm:
+      upstream: ${VLM_BASE_URL}
+      api_key: ${VLM_API_KEY}
+      model: ${VLM_MODEL}
+      api_format: openai
+  liaison: {listen: 0.0.0.0:50081, log: info}
+
+primitive:
+  - name: lynx_quadruped
+    path: ./primitives/primitive-lynx_quadruped
+    config:
+      motion_state_topic: /MOTION_STATE
+      motion_info_topic: /MOTION_INFO
+      nav_cmd_topic: /NAV_CMD
+      gait_topic: /GAIT
+      twist_in_topic: /cmd_vel
+      odom_topic: /odom
+      odom_source_topic: /rtabmap/odom
+      odom_frame: odom
+      base_frame: base_link
+      sentinel_timeout_s: 30.0
+      speed_mps: 0.20
+      ang_speed_rps: 0.60
+      default_duration_sec: 1.0
+      rotate_tolerance_deg: 3.0
+      posture_wait_s: 8.0
+      nav_gait: 12290
+      usage_mode_ip: 10.21.33.103
+      usage_mode_port: 30004
+      usage_mode_transport: udp
+      usage_mode: 1
+      # 本机无法读/切使用模式（本体监控协议要 mTLS，没有客户端证书）。
+      # 操作者已确认机器人处于导航模式，因此跳过该检查。
+      require_usage_mode_check: false
+
+service: []
+skill: []

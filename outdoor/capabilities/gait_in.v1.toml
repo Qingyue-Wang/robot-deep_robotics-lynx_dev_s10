@@ -1,0 +1,9 @@
+[contract]
+id = "robonix/primitive/chassis/gait_in"
+version = "1"
+kind = "primitive"
+idl = "common_interfaces/std_msgs/msg/UInt32.msg"
+description = "Explicitly armed navigation gait request, confirmed separately by chassis feedback"
+
+[mode]
+type = "topic_in"
