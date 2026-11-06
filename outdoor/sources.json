@@ -2,12 +2,12 @@
   {
     "path": "packages/service-map-outdoor-rbnx",
     "url": "https://github.com/syswonder/service-map-outdoor-rbnx.git",
-    "revision": "fbf5be899c107ea0bb4b1abd6c490057f52e8715"
+    "revision": "5b98d4d69e33662e0e03da3b2d424e0d659edb9c"
   },
   {
     "path": "packages/service-navigation-outdoor-rbnx",
     "url": "https://github.com/syswonder/service-navigation-outdoor-rbnx.git",
-    "revision": "e57a05dae6dec265f77f05dcd3ef414f0128d12a"
+    "revision": "adf72e5026f8f3c99f5a0d59c2609a7d770fe15c"
   },
   {
     "path": "packages/service-localization-outdoor-rbnx",
@@ -27,6 +27,6 @@
   {
     "path": "framework/robonix",
     "url": "https://github.com/syswonder/robonix.git",
-    "revision": "de2472e9e9159070e3021681f1946caca96e20f3"
+    "revision": "2eb858391c687859e2dbcc3352ca047bb53d3a5f"
   }
 ]
