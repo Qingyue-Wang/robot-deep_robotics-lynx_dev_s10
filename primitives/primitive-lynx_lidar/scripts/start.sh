@@ -22,6 +22,22 @@ RSLIDAR_NODE="$RSLIDAR_WS/install/rslidar_sdk/lib/rslidar_sdk/rslidar_sdk_node"
 RSLIDAR_PID=""
 TF_PID=""
 
+# Kill a driver left behind by an unclean previous run. A stale instance owns
+# the Airy's UDP ports (6691/7781/6681); the replacement then starts but never
+# receives packets, so /airy_201/points stays silent and every consumer
+# (FAST-LIO included) times out even though this primitive may briefly report
+# ACTIVE from the dying instance's last clouds.
+kill_stale() {
+  local pattern="$1"
+  pkill -TERM -f -- "$pattern" 2>/dev/null || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    pgrep -f -- "$pattern" >/dev/null 2>&1 || return 0
+    sleep 0.2
+  done
+  pkill -KILL -f -- "$pattern" 2>/dev/null || true
+}
+kill_stale "$RSLIDAR_NODE"
+
 cleanup() {
   if [ -n "$RSLIDAR_PID" ]; then
     kill "$RSLIDAR_PID" 2>/dev/null || true

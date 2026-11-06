@@ -29,9 +29,28 @@ planner_server:
     expected_planner_frequency: 5.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_navfn_planner/NavfnPlanner"
-      tolerance: 0.5
-      allow_unknown: true
+      # Theta* is an any-angle planner: its result is a chain of long straight
+      # segments instead of NavFn's 8-connected staircase. The S10 rolls on
+      # wheeled feet, and every body-heading change needs a leg lift, so a
+      # straight plan is directly cheaper to execute than a wiggly one.
+      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
+      # 8-connected expansion; combined with line-of-sight shortcuts this is
+      # what keeps the segments straight rather than axis-aligned.
+      how_many_corners: 8
+      # Keep distance dominant (1.0) so the path stays the shortest straight
+      # line, while traversal cost (2.0) still pulls it away from wall inflation.
+      w_euc_cost: 1.0
+      w_traversal_cost: 2.0
+      allow_unknown: false
+      # Do not bend the path near the goal to line up with the goal yaw. The
+      # dog can rotate in place, so the final heading is achieved by the
+      # explicit terminal rotation (RotateToGoal); the path itself stays
+      # straight all the way to the goal position.
+      use_final_approach_orientation: false
+      # NavFn fallback (8-connected staircase, reintroduces small turns):
+      # plugin: "nav2_navfn_planner/NavfnPlanner"
+      # tolerance: 0.5
+      # allow_unknown: false
     # MID-360 ICP odometry and projected scans are processed asynchronously and
     # currently arrive about 0.4-0.5 s behind wall time. Keep enough TF history
     # for costmap message filters to resolve the scan timestamp reliably.
@@ -63,10 +82,13 @@ controller_server:
       movement_time_allowance: 10.0
     # Goal checker parameters
     general_goal_checker:
-      stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.50
-      yaw_goal_tolerance: 0.15 #0.15
+      xy_goal_tolerance: 0.15
+      # Final pose MUST include the requested heading, so keep this tight.
+      # The heading is reached by the explicit terminal rotation
+      # (RotateToGoal), which the dog is allowed to do; the straight-line tuning
+      # below is about avoiding heading corrections *while travelling*.
+      yaw_goal_tolerance: 0.15
       stateful: true
     # DWB parameters
     FollowPath:
@@ -102,27 +124,48 @@ controller_server:
       linear_granularity: 0.05
       angular_granularity: 0.05
       transform_tolerance: 0.5
-      xy_goal_tolerance: 0.50
-      yaw_goal_tolerance: 0.15
+      # RotateToGoal reads its own RotateToGoal.* tolerances below; the active
+      # goal test is general_goal_checker above. These DWB-level keys did
+      # nothing useful and are intentionally absent.
       # trans_stopped_velocity: 0.15
       short_circuit_trajectory_evaluation: True
       stateful: True
+      # RotateToGoal performs the explicit final-heading turn at the goal. The
+      # dog can rotate in place, so this is intended; the point of the
+      # straight-line tuning is to avoid heading corrections while travelling.
+      # Keep its window equal to the goal checker's so it starts only once the
+      # goal position is actually reached.
       critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
       # Keep obstacle cost meaningful without making every trajectory through a
       # narrow doorway too expensive. Global inflation already biases the plan
       # toward the doorway center; this critic only refines the local trajectory.
       BaseObstacle.scale: 0.02
-      PathAlign.scale: 0.1
-      # PathAlign.forward_point_distance: 0.1
-      # PathAlign.forward_preference: true
-      GoalAlign.scale: 0.2
-      # GoalAlign.forward_point_distance: 0.1
-      # GoalAlign.forward_preference: true
-      PathDist.scale: 0.5
+      # Straight-line tracking. PathAlign is the heading-vs-path critic; at 0.1
+      # it was five times weaker than PathDist, so the robot happily cut
+      # corners and approached the path diagonally — an S-curve even on a
+      # straight plan. Nav2's default balance is PathAlign:PathDist = 1:1;
+      # give alignment the edge here and sample the path heading a little
+      # further ahead so a noisy grid plan cannot wiggle the heading.
+      PathAlign.scale: 1.0
+      # Sample heading 0.3 m ahead (was 0.2). On long straight Theta* segments
+      # this averages out small path offsets and stops the controller from
+      # correcting every centimetre with a steering twitch.
+      PathAlign.forward_point_distance: 0.3
+      PathAlign.forward_preference: true
+      GoalAlign.scale: 0.3
+      GoalAlign.forward_point_distance: 0.1
+      GoalAlign.forward_preference: true
+      # PathDist keeps the trajectory on the line; keep it above GoalDist so
+      # the controller cannot shortcut toward the goal.
+      PathDist.scale: 0.8
       GoalDist.scale: 0.5
-      RotateToGoal.xy_goal_tolerance: 0.20
-      RotateToGoal.yaw_goal_tolerance: 0.20
-      RotateToGoal.scale: 1.5 #0.6
+      # Keep the critic strong (final heading is mandatory) but shrink its
+      # activation window to the goal checker's 0.15 m. The old 0.20 m window
+      # started the pivot while still approaching, which is where the long
+      # in-place turns came from.
+      RotateToGoal.xy_goal_tolerance: 0.15
+      RotateToGoal.yaw_goal_tolerance: 0.15
+      RotateToGoal.scale: 1.0
       RotateToGoal.slowing_factor: 1.0
       RotateToGoal.lookahead_time: 0.5
 
@@ -138,6 +181,9 @@ smoother_server:
     smoother_plugins: ["simple_smoother"]
     simple_smoother:
       plugin: "nav2_smoother::SimpleSmoother"
+      # Unused: the behavior tree deliberately does not call SmoothPath (the
+      # dog rotates in place at corners). Kept so the lifecycle node has a
+      # valid plugin configuration.
       tolerance: 1.0e-10
       max_its: 1000
       do_refinement: true

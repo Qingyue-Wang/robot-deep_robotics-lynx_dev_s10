@@ -1,0 +1,303 @@
+# Machine-local variant for this NX: no D435i / Piper arm / grasp skill installed.
+# Generated from robonix_manifest.yaml (kept untouched). mapping runs in mapping
+# mode because the saved map 261028 does not exist on this machine.
+#   ROBONIX_MANIFEST=$PWD/robonix_manifest.nx.yaml ./start.sh
+manifestVersion: 1
+catalog:
+  name: robonix.robot.deep_robotics.lynx_s10
+  version: 0.1.0
+  description: DeepRobotics Lynx S10 wheeled-quadruped deployment — native ROS 2 (drdds) chassis control.
+  license: Apache-2.0
+  tags: [robot, deploy, deep_robotics, lynx_s10, rgbd, vln]
+  maintainers:
+    - ZLC(mujue) <mujue155@gmail.com>
+
+name: robot-deep_robotics-lynx_s10
+env:
+  LOG: "INFO"
+  # The S10 publishes its native ROS 2 topics (drdds) over the default RMW
+  # (Fast DDS). Do NOT set RMW_IMPLEMENTATION here: rmw_zenoh_cpp (used by the
+  # Lite3 deploy) would make the S10's topics invisible to this host.
+  #
+  # Keep THIS stack on a private domain. The robot's native graph on domain 0
+  # includes a TF tree (map -> base_link, base_link -> base_gravity) stamped
+  # with the robot's own clock, which drifts tens of seconds ahead of this
+  # host. Sharing the domain makes tf2 reject our odom -> base_link updates as
+  # TF_OLD_DATA and prune them from the buffer, so every RTAB-Map lookup fails
+  # ("extrapolation into the past ... earliest data is at <future time>") and
+  # no node is ever added — the web UI still previews the live cloud, so it
+  # looks like "point cloud but no map". Other machines in the lab also
+  # publish map/odom/base_link TF on domain 0 over Wi-Fi.
+  # lynx_quadruped bridges the chassis topics it needs across the split
+  # (primitives/primitive-lynx_quadruped/scripts/chassis_domain_bridge.py).
+  # Debug this deployment with `export ROS_DOMAIN_ID=42`.
+  ROS_DOMAIN_ID: "42"
+  LYNX_ROBOT_DOMAIN_ID: "0"
+  # Prebuilt drdds message package used by lynx_quadruped. On this Orin it is
+  # the dog user's colcon workspace; on an nvidia-user robot install it is
+  # /home/nvidia/drdds_build_ws/install.
+  LYNX_DRDDS_INSTALL: ${HOME}/ros2_ws/drdds_humble_ws/install
+  RBNX_BUILD_TARGET: jetson-native
+  ROBONIX_SCENE_FORCE: native
+  ROBONIX_SCENE_PLATFORM: jetson_nx
+  ROBONIX_SCENE_ROS_DISTRO: humble
+  SCENE_NATIVE_PYTHON: python3
+  SCENE_WEB_PORT: "50107"
+  SCENE_WEB_HOST: "0.0.0.0"
+  ROBONIX_MAPPING_FORCE: native
+  ROBONIX_MAPPING_PLATFORM: jetson_nx
+  MAPPING_WEBUI_PORT: "8091"
+  # 2D scan for the mapping service's static relocalization / trust check.
+  # This deploy has no lidar2d capability; nav2's scan_projection publishes
+  # /scanner/scan. Without this the service looks for /scan, finds no publisher,
+  # and automatic relocalization can never run.
+  MAPPING_SCAN_TOPIC: /scanner/scan
+  ROBONIX_NAV2_FORCE: native
+  ROBONIX_NAV2_PLATFORM: jetson_nx
+  SCENE_MAP_ID: test1
+  SCENE_RESTORE_ON_START: "true"
+  MAPPING_MAPS_DIR: ${HOME}/.robonix/maps
+  SCENE_OBJECT_MEMORY_DB: ${HOME}/.robonix/scene/objects.db
+  SCENE_GRAPH_CACHE_DIR: ${HOME}/.robonix/scene/graph
+  SCENE_ANNOTATIONS_DIR: ${HOME}/.robonix/scene/annotations
+  SPEECH_BACKEND: tencent
+
+system:
+  # Atlas, Executor, and Liaison must be reachable by robonix-client. Keep
+  # Pilot and Soma private to the robot host.
+  atlas: {listen: 0.0.0.0:50051, log: info}
+  soma:
+    listen: 0.0.0.0:50091
+    # Relative to this manifest's directory; rbnx pins it to an absolute path.
+    # This keeps the same file working on the robot (/home/nvidia/...) and on
+    # this bench (/home/dog/...).
+    robot_yaml: soma.yaml
+  executor: {listen: 0.0.0.0:50061, log: info}
+  pilot:
+    listen: 0.0.0.0:50071
+    log: info
+    vlm:
+      upstream: ${VLM_BASE_URL}
+      api_key: ${VLM_API_KEY}
+      model: ${VLM_MODEL}
+      api_format: openai
+  liaison: {listen: 0.0.0.0:50081, log: info}
+  # scene disabled for mapping: its RELIABLE subscriber throttles /airy_201/points
+  # to ~3 Hz, and a camera capability for its semantic map is not registered here.
+  # scene: temporarily disabled for isolation test (scene ON vs OFF point-cloud rate)
+  # scene:
+  #   log: info
+    # camera_provider_id: orbbec_camera
+  # vitals:
+  #   listen: 0.0.0.0:50093
+  #   log: info
+    
+primitive:
+  - name: lynx_quadruped
+    # For local development we point straight at the repo on disk; switch back
+    # to `url:`/`branch:` once the repo is pushed to GitHub.
+    # url: https://github.com/chenzk6/primitive-lynx_quadruped.git
+    # branch: main
+    path: ./primitives/primitive-lynx_quadruped
+    config:
+      motion_state_topic: /MOTION_STATE
+      motion_info_topic: /MOTION_INFO
+      nav_cmd_topic: /NAV_CMD
+      gait_topic: /GAIT
+      twist_in_topic: /cmd_vel
+      # 里程计来自 NX 上的 FAST-LIO（lynx_fastlio）：它把前 Airy + 内置 IMU 的
+      # LIO 位姿修正成 odom→base_link 后发布 /fastlio/odom。这里重打 frame/stamp
+      # 后转发到 /odom 供 nav2 消费。不再订阅机器狗 /ODOM，也不再使用 rtabmap ICP。
+      odom_topic: /odom
+      odom_source_topic: /fastlio/odom
+      odom_frame: odom
+      base_frame: base_link
+      sentinel_timeout_s: 30.0
+      speed_mps: 0.20
+      ang_speed_rps: 0.60
+      default_duration_sec: 1.0
+      rotate_tolerance_deg: 3.0
+      posture_wait_s: 8.0
+      nav_gait: 12290   # 0x3002 平地敏捷步态, recommended for navigation
+      # 使用模式切换 over the 本体监控协议. 实测本机不通：30003 是 TLS1.3 + mTLS
+      # （发心跳回 "certificate required"），30004 明文 UDP 无任何应答。没有客户端
+      # 证书就读不到也设不了 使用模式，所以原语把它当**尽力而为**的检查：失败只告警，
+      # 不再拦住 move（Nav2 走同一条 /NAV_CMD，本来也不检查使用模式；机器人不在
+      # 导航模式时自己会忽略速度指令，不会乱走）。需要恢复“检查不过就拒绝”时设
+      # usage_mode_strict: true。
+      usage_mode_ip: 10.21.33.103
+      usage_mode_port: 30004   # 30003=TLS+mTLS, 30004=DTLS；本机均不可用（无证书）
+      usage_mode_transport: udp
+      usage_mode: 1            # 1 = 导航模式 (required for /NAV_CMD)
+      usage_mode_strict: false # true = 使用模式无法确认时 move/posture 报错
+      usage_mode_retry_s: 300.0 # 失败后 5min 内不再重试，避免每条指令多等 ~4s (重启即重置)
+      # 任何底盘运动（posture 的站/趴/RL/标零、move、nav2 的 /cmd_vel）前，
+      # 都先把机械臂收回 home：臂伸在外面时底盘一动重心就偏，机器人会翻。
+      # 收不回去就拒绝底盘运动（damping 软急停除外，必须立刻生效）。
+      arm_home_before_motion: false   # no Piper arm on this NX
+      arm_home_before_stand: false    # no Piper arm on this NX   # 兼容旧键
+      arm_joint_command_topic: /arm/joint_command
+      arm_joint_states_topic: /arm/joint_states_single
+      arm_home_deg: [0, 0, 0, 0, 25, 0]
+      arm_home_tol_deg: 3.0
+      arm_home_timeout_s: 12.0
+
+  - name: lynx_lidar
+    # Use the in-tree copy (same code as the syswonder remote package) so its
+    # start.sh can reap a stale rslidar_sdk_node before binding the Airy's UDP
+    # ports. The cached remote package is not modified by this repo.
+    path: ./primitives/primitive-lynx_lidar
+    config:
+      # FRONT Airy lidar (airy_201): VERTICAL mount (pitch +90°), scans a vertical
+      # disc (floor ↔ ceiling). Unlike the BACK lidar's horizontal 360° scan, this
+      # geometry gives poor forward coverage for 2D mapping. It also defeats
+      # RTAB-Map's normal-based ground segmentation (see Grid/NormalsSegmentation
+      # in rtabmap_params.yaml) since there is no local floor PATCH to estimate a
+      # normal from, only a thin scan line — ground filtering there now falls back
+      # to plain height-thresholding instead.
+      points_topic: /airy_201/points
+      qos: reliable                     # rslidar_sdk publishes RELIABLE
+      sentinel_timeout_s: 15.0          # stays Deferred until points actually flow
+
+  - name: lynx_fastlio
+    path: ./primitives/primitive-lynx_fastlio
+    config:
+      # FAST-LIO 里程计：前 Airy（XYZIRT，垂直安装）+ 内置 IMU。必须排在
+      # lynx_lidar 之后——start.sh 拉起的 FAST-LIO 节点直接订阅 rslidar_sdk 的
+      # /airy_201/points 和 /airy_201/imu。
+      # 算法参数（外参、降采样、blind 等）在
+      # primitives/primitive-lynx_fastlio/config/robosense_airy_s10.yaml；
+      # 这里只配置原语的输出话题与超时。
+      odom_topic: /Odometry             # FAST-LIO 原始输出（world -> IMU body）
+      odom_out_topic: /fastlio/odom     # 修正后的 odom -> base_link
+      odom_frame: odom
+      base_frame: base_link
+      sentinel_timeout_s: 60.0          # 等待 FAST-LIO 初始化 + 首帧 /Odometry
+
+  - name: lynx_imu
+    path: ./primitives/primitive-lynx_imu
+    config:
+      # 必须排在 lynx_lidar 之后：soma 按顺序起 primitive，lynx_imu 依赖
+      # lynx_lidar 启动的 rslidar 节点发布的 /airy_201/imu。
+      imu_topic: /airy_201/imu     # NX 直连：rslidar_sdk 解出前雷达内置 IMU（frame airy_201）
+      # BEST_EFFORT：rslidar 的 /airy_201/imu 是 RELIABLE，若 lynx_imu 也订 RELIABLE，
+      # 可靠协议的流控会把整条流压到回调能跟上的速率（实测 196Hz → ~5Hz），导致
+      # rtabmap 每隔一帧就丢一帧（"IMU newer than scan"）。BEST_EFFORT 不做流控，
+      # 回调偶发 GC 停顿只丢个别样本，IMU 仍以 ~190Hz 到达。订阅/发布两侧一致。
+      qos: best_effort              # no flow control; drops single samples, not the stream
+      sentinel_timeout_s: 60.0      # rslidar 节点启动约 20s，留足余量
+
+  # - name: lynx_camera
+  #   url: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-camera-rbnx
+  #   branch: main
+  #   config:
+  #     # The S10's depth topic (/DEPTH_IMAGE) is registered but not flowing, so
+  #     # we pull RGB directly from the onboard MediaMTX RTSP server instead.
+  #     # Four wide-angle channels, H.264 1024x576@30. Set `enabled: false` on all
+  #     # but one to save decode + DDS resources.
+  #     channels:
+  #       - {name: video4, url: "rtsp://10.21.33.103:8554/video4", enabled: true, primary: true}
+  #       - {name: video0, url: "rtsp://10.21.33.103:8554/video0", enabled: false}
+  #       - {name: video2, url: "rtsp://10.21.33.103:8554/video2", enabled: false}
+  #       - {name: video6, url: "rtsp://10.21.33.103:8554/video6", enabled: false}
+  #     qos: best_effort
+  #     publish_hz: 10.0        # per-channel DDS publish cap (4x30Hz would saturate the bus)
+  #     jpeg_quality: 85
+  #     sentinel_timeout_s: 20.0
+
+  # - name: lynx_health
+  #   path: ./primitives/primitive-lynx_health
+  #   config:
+  #     battery_topic: /BATTERY_DATA
+  #     cpu_topic: /cpu_status
+  #     interval_s: 1.0
+  #     sentinel_timeout_s: 15.0
+
+service: 
+  - name: mapping
+    url: https://github.com/syswonder/service-map-rbnx
+    branch: main
+    manifest: package_manifest.jetson-native.yaml
+    config:
+      webui_host: 0.0.0.0
+      algo: rtabmap
+      base_frame: base_link
+      # 外部里程计由 lynx_fastlio 提供：FAST-LIO（前 Airy + 内置 IMU）解算
+      # odom→base_link，并用同一位姿广播 TF。rtabmap 只消费这条 TF 做建图/
+      # 回环，不再启动 icp_odometry；map→odom 仍由 rtabmap 唯一发布。
+      odom_frame: odom
+      use_sim_time: false
+      map_id: aiit_27f            # ignored in mapping mode
+      map_mode: localization     # fresh map: this NX has no saved 261028 map
+      webui_scan_topic: /scanner/scan
+      # navigation_odom_bridge 保持 OFF：外部里程计模式下启用它会与
+      # sensor_providers.odom 冲突，launch 会直接报错。
+      navigation_odom_bridge: false
+      # The Airy was rebuilt with POINT_TYPE=XYZIRT, so each point carries a
+      # lidar-clock timestamp. FAST-LIO uses those timestamps for its own
+      # motion undistortion; RTAB-Map still consumes the raw cloud for the
+      # occupancy grid, where a moving 10 Hz scan smears unless deskewed.
+      # Keep deskew off for now: the deskew node publishes RELIABLE while
+      # rtabmap subscribes BEST_EFFORT, which dropped the whole cloud
+      # (complete data loss). Re-enable after fixing that QoS mismatch.
+      deskew_lidar: false
+      params_file: config/rtabmap_params.yaml
+      sensor_providers:
+        lidar3d: lynx_lidar
+        # FAST-LIO 提供外部里程计（TF odom→base_link）；绑定后 rtabmap 不再跑
+        # 自己的 ICP 里程计。IMU 不用绑：FAST-LIO 直接订阅 /airy_201/imu。
+        odom: lynx_fastlio
+        # rgb: orbbec_camera
+        # depth: orbbec_camera
+
+#   - name: nav2
+#     url: https://github.com/syswonder/service-navigation-rbnx
+#     branch: main
+#     manifest: package_manifest.jetson-native.yaml
+#     config:
+#       params_file: config/nav2_params_lite3.yml
+#       bt_xml_file: config/navigate.xml
+#       use_sim_time: false
+#       action_wait_s: 90.0
+#       # Navigation's final velocity goes to /cmd_vel_service, NOT directly to
+#       # /cmd_vel: scripts/odom_guard.py (started by start.sh) gates it and is
+#       # the only publisher on /cmd_vel (chassis twist_in). While /odom is
+#       # stale/jumping the gate zeroes the base and cancels the nav goal.
+#       velocity_output_topic: /cmd_vel_service
+#       dynamic_speed:
+#         # Match the effective DWB and velocity-smoother planar ceiling.
+#         # The 75% startup limit is 0.2625 m/s.
+#         max_linear_speed_mps: 0.35
+#         default_percentage: 75
+#         step_percentage: 20
+#         min_percentage: 20
+#       # Project the MID-360 cloud in base_link, remove returns inside the Soma
+#       # footprint, reject isolated scan speckles, and publish the canonical
+#       # /scanner/scan consumed by both Nav2 costmaps and the velocity guard.
+#       # Keeping this conversion inside navigation avoids the incompatible QoS
+#       # and duplicate scan publishers seen with the legacy pcld2lscan service.
+#       scan_projection:
+#         enabled: true
+#         target_frame: base_link
+#         # base_link is at the torso centre; URDF places the lidar 4.5 cm
+#         # forward and 0.10 m above it.
+#         # This band excludes the floor while retaining human legs and torso.
+#         min_height_m: 0.10
+#         max_height_m: 1.50
+#         range_max_m: 12.0
+#         # Upstream navigation uses Soma's physical footprint to derive its
+#         # circular projection self-filter (about 0.36 m for Lite3).
+#         self_filter_margin_m: 0.0
+#       provider_ids:
+#         map: mapping
+#         # nav2 仍消费底盘 odom 契约（/odom）；lynx_quadruped 把 lynx_fastlio 的
+#         # /fastlio/odom 重打后转发到 /odom。map→odom 修正仍由 mapping 发布。
+#         odom: lynx_quadruped
+#         scan_cloud: lynx_lidar
+# 
+#   #     descirption:
+#   #           home pose=(0.38, 0.13, -1.28)
+#   #           目标 pose=(-1.80, -2.43, -1.23) 
+#   #           冰箱 pose=(2.36, -0.62, -0.51)
+# 
+# 
