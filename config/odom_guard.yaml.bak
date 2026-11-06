@@ -1,0 +1,36 @@
+# Odometry safety gate (scripts/odom_guard.py, started by start.sh).
+#
+# The navigation service is configured with
+#     velocity_output_topic: /cmd_vel_service
+# so this gate is the only publisher on /cmd_vel (the chassis twist_in).
+# While /odom is healthy it forwards the navigation velocity unchanged; when
+# odom goes stale or jumps (FAST-LIO divergence) it publishes zero and
+# cancels the active NavigateToPose goal, because Nav2 otherwise keeps
+# driving on the last known pose.
+#
+# /cmd_vel_service and /cmd_vel must match, respectively, the nav2 service's
+# velocity_output_topic and lynx_quadruped's twist_in_topic.
+
+odom_topic: /odom
+input_topic: /cmd_vel_service
+output_topic: /cmd_vel
+cancel_service: /navigate_to_pose/_action/cancel_goal
+
+# Stop when no /odom sample arrives for this long. FAST-LIO publishes at
+# ~10 Hz, so 0.5 s is ~5 missed frames — long enough not to trip on a
+# single dropped sample, short enough that the base does not run blind.
+stale_timeout_s: 0.5
+
+# A single odom step larger than this is physically impossible for the S10
+# (top speed ~0.35 m/s): treat it as a jump/divergence.
+max_jump_m: 0.5
+max_speed_mps: 3.0
+max_yaw_jump_rad: 1.5
+
+# After the last fault, odom must stay sane for this long before commands are
+# allowed through again (the navigation goal has already been cancelled —
+# re-issue it deliberately).
+recover_s: 2.0
+
+# Zero-velocity publishing rate while tripped.
+tick_hz: 20.0

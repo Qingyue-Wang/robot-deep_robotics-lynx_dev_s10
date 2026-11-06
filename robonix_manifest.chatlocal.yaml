@@ -1,0 +1,61 @@
+# 本机（10.21.33.100）验证用配置：只拉聊天 + 山猫底盘 UDP 控制。
+#
+# 为什么不直接用 robonix_manifest.yaml：
+#   - 全栈里的 lynx_quadruped 依赖 drdds/msg/* Python 包，这台机器没装
+#     （预编译包在机器人 Orin 的 /home/nvidia/drdds_build_ws，当前不可达）。
+#   - lynx_lidar/lynx_imu 依赖的 /airy_201/* 也不在本机，mapping/nav2 起不来。
+#   - 因此这里复用 console 部署里已验证的 UDP 底盘原语
+#     (primitive-deep-robotics-lynx-chassis-rbnx，走 10.21.33.103:30004)，
+#     并配上 s10-dev 的 pilot/liaison，得到一套可 `rbnx chat` 的最小栈。
+#
+# 位置：本文件与 robonix_manifest.yaml 同目录，相对路径按本目录解析。
+# 启动：ROBONIX_MANIFEST=./robonix_manifest.chatlocal.yaml ./start.sh
+manifestVersion: 1
+name: robonix-s10-chat-hostlocal
+catalog:
+  name: robonix.robot.deep_robotics.lynx_s10.chat_hostlocal
+  version: 0.1.0
+  description: Host-local chat + Lynx chassis (UDP) stack for development.
+  license: Apache-2.0
+
+env:
+  LOG: "INFO"
+  # 山猫原生话题走 Fast DDS；这里不控制底盘话题，但相机 RTSP 与 pilot 不受影响。
+  ROS_DOMAIN_ID: "0"
+
+system:
+  atlas: {listen: 0.0.0.0:50051, log: info}
+  soma:
+    listen: 0.0.0.0:50091
+    robot_yaml: /home/dog/.local/share/robonix-console/deployments/default/robot/soma.yaml
+  executor: {listen: 0.0.0.0:50061, log: info}
+  pilot:
+    listen: 0.0.0.0:50071
+    log: info
+    vlm:
+      upstream: ${VLM_BASE_URL}
+      api_key: ${VLM_API_KEY}
+      model: ${VLM_MODEL}
+      api_format: openai
+  liaison: {listen: 0.0.0.0:50081, log: info}
+
+primitive:
+  # UDP 版底盘：不需要 drdds，直接对 10.21.33.103:30004 发 Motion_Ctrl。
+  # 注意：init 成功后会主动让狗站起来（见该包 README）。
+  - name: lynx_chassis
+    path: /home/dog/.local/share/robonix-console/deployments/default/packages/primitive-deep-robotics-lynx-chassis-rbnx
+    config: {}
+
+  # S10 前视 RGB 暂时不挂：本次 boot 时 RTSP video4 20s 内没出帧，
+  # 会让 soma stage 1 整体失败。需要时单独排查 MediaMTX 后再加回。
+  # - name: lynx_camera
+  #   path: ./primitives/primitive-lynx_camera
+  #   config:
+  #     channels:
+  #       - {name: video4, url: "rtsp://10.21.33.103:8554/video4", enabled: true, primary: true}
+  #     publish_hz: 10.0
+  #     sentinel_timeout_s: 20.0
+
+# 本机没有雷达/IMU 链路，mapping/nav2 先不挂。
+service: []
+skill: []

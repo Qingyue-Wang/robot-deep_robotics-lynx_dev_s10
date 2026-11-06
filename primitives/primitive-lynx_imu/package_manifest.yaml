@@ -1,0 +1,21 @@
+manifestVersion: 1
+
+package:
+  name: robonix.primitive.deep_robotics.lynx_s10.imu
+  version: 0.1.0
+  vendor: robonix
+  description: Lynx S10 IMU primitive — exposes the S10 native sensor_msgs/Imu stream.
+  license: Apache-2.0
+  tags: [primitive, imu, deep_robotics, lynx_s10, ros2]
+  maintainers:
+    - ZLC(mujue) <mujue155@gmail.com>
+
+# cap_id is what shows up in `rbnx caps`. Matches the Primitive id in main.py.
+capability_id: lynx_imu
+
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+
+# Built-in contract (lives under <robonix>/capabilities/primitive/imu/imu.v1.toml).
+capabilities:
+  - name: robonix/primitive/imu/imu

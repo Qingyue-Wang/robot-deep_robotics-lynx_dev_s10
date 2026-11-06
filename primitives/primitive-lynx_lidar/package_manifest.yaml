@@ -1,0 +1,20 @@
+manifestVersion: 1
+
+package:
+  name: robonix.primitive.deep_robotics.lynx_s10.lidar
+  version: 0.1.0
+  vendor: robonix
+  description: Lynx S10 3D lidar primitive — exposes the S10 native PointCloud2 stream.
+  license: Apache-2.0
+  tags: [primitive, lidar, pointcloud, deep_robotics, lynx_s10, ros2]
+  maintainers:
+    - ZLC(mujue) <mujue155@gmail.com>
+
+capability_id: lynx_lidar
+
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+
+# Built-in contract (lives under <robonix>/capabilities/primitive/lidar/lidar3d.v1.toml).
+capabilities:
+  - name: robonix/primitive/lidar/lidar3d

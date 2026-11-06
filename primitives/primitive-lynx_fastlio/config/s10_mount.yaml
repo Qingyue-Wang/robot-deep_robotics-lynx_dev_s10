@@ -1,0 +1,13 @@
+# Wrapper-only mount calibration (not read by the FAST-LIO node).
+#
+# Pose of the front Airy (frame airy_201) in base_link. These are the exact
+# values scripts/start.sh of primitive-lynx_lidar publishes as the
+# base_link -> airy_201 static TF, i.e. the S10 URDF front lidar_joint origin:
+# x=0.22341, y=0, z=-0.0001, roll=pi, pitch=-pi/2, yaw=0.
+#
+# lynx_fastlio combines this with the FAST-LIO LiDAR->IMU extrinsic to turn
+# FAST-LIO's IMU-body odometry into odom -> base_link.
+base_to_lidar_T: [0.22341, 0.0, -0.0001]
+base_to_lidar_R: [0.0, 0.0, 1.0,
+                  0.0, -1.0, 0.0,
+                  1.0, 0.0, 0.0]

@@ -1,5 +1,5 @@
 urdf:
-  path: ./urdf/lynx_s10.urdf
+  path: ./urdf/S10.urdf
   root_link: base_link
   model_name: deep_robotics_lynx_s10
 
@@ -8,6 +8,16 @@ robot:
   display_name: "DEEP Robotics Lynx S10"
   family: wheeled_quadruped
   root_part: base
+  dimensions: { length_m: 0.61, width_m: 0.37, height_m: 0.61 }
+  mass_kg: 19.0
+
+  footprint:
+    base_frame: base_link
+    points:
+      - [0.305, 0.185]
+      - [0.305, -0.185]
+      - [-0.305, -0.185]
+      - [-0.305, 0.185]
 
   components:
     - id: base
@@ -15,11 +25,31 @@ robot:
       urdf_link: base_link
 
       exports:
-        - provider_id: lynx_chassis
+        - provider_id: lynx_quadruped
           capabilities:
             - path: robonix/primitive/chassis/driver
-              description: "Lynx chassis primitive lifecycle."
+              description: "Lynx S10 chassis lifecycle driver."
             - path: robonix/primitive/chassis/move
-              description: "Real value low-level Lynx chassis movement."
-            - path: robonix/primitive/chassis/move_ratio
-              description: "Ratio value low-level Lynx chassis movemeent."
+              description: "Low-level bounded Lynx S10 chassis movement (RL nav mode)."
+            - path: robonix/primitive/chassis/twist_in
+              description: "Velocity input bridged to the S10 /NAV_CMD topic."
+            - path: robonix/primitive/chassis/odom
+              description: "Lynx S10 chassis odometry (forwarded from /ODOM)."
+            - path: robonix/primitive/chassis/posture
+              description: "Lynx S10 stand/sit/RL-navigation posture control."
+            - path: robonix/primitive/chassis/get_posture
+              description: "Read the Lynx S10 current motion state."
+
+    - id: front_camera
+      type: camera
+      # RGB comes from the onboard RTSP server; there is no dedicated optical
+      # frame in the URDF yet, so mount the part on the body frame for now.
+      urdf_link: base_link
+
+      exports:
+        - provider_id: lynx_camera
+          capabilities:
+            - path: robonix/primitive/camera/rgb
+              description: "Stream RGB images (MediaMTX RTSP, H.264)."
+            - path: robonix/primitive/camera/snapshot
+              description: "Capture one RGB frame."

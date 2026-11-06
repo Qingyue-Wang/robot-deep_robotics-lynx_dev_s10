@@ -4,3 +4,10 @@ __pycache__/
 *.pyc
 .venv/
 .env
+logs/
+.cache/
+.run/
+d.py
+.sdk/
+frames*
+docs/
