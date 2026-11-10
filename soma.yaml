@@ -34,7 +34,7 @@ robot:
             - path: robonix/primitive/chassis/twist_in
               description: "Velocity input bridged to the S10 /NAV_CMD topic."
             - path: robonix/primitive/chassis/odom
-              description: "Lynx S10 chassis odometry (forwarded from /ODOM)."
+              description: "Lynx S10 odometry forwarded from FAST-LIO."
             - path: robonix/primitive/chassis/posture
               description: "Lynx S10 stand/sit/RL-navigation posture control."
             - path: robonix/primitive/chassis/get_posture

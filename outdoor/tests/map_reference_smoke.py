@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import tempfile
 import time
 
@@ -15,7 +16,7 @@ from outdoor_nav.scene import AtlasLocalization
 root=Path(__file__).resolve().parents[1]
 run=Path(tempfile.mkdtemp(prefix='map-reference-smoke-'))
 log=(run/'atlas.log').open('w')
-atlas=subprocess.Popen(['/home/nvidia/.cargo/bin/robonix-atlas','--listen','127.0.0.1:52551',
+atlas=subprocess.Popen([shutil.which('robonix-atlas') or 'robonix-atlas','--listen','127.0.0.1:52551',
     '--capabilities',str(root/'packages/service-localization-outdoor-rbnx/capabilities')],stdout=log,stderr=log)
 try:
     from robonix_api import ATLAS

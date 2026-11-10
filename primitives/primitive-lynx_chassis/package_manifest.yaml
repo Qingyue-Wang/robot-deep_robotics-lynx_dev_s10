@@ -1,0 +1,14 @@
+manifestVersion: 1
+package:
+  name: robonix.primitive.deep_robotics.lynx_s10.chassis
+  version: 0.1.0
+  description: Guarded ROS 2 velocity, gait and native-domain feedback for Lynx S10.
+  license: MIT
+build: bash scripts/build.sh
+start: bash scripts/start.sh
+capabilities:
+  - name: robonix/primitive/chassis/twist_in
+    transport: ros2
+  - name: robonix/primitive/chassis/gait_in
+    transport: ros2
+    path: capabilities/gait_in.v1.toml

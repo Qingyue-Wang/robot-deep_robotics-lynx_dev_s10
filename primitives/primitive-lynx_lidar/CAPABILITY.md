@@ -35,6 +35,10 @@ S10 装有两台 RoboSense Airy 雷达，由 NX 上的 `rslidar_sdk`（`~/rslida
 | `points_topic` | `/airy_201/points` | 源点云话题（前雷达，竖直扫描；`/airy_202/points` 为后雷达，水平扫描） |
 | `qos` | `reliable` | 声明的 QoS（rslidar_sdk 为 RELIABLE） |
 | `sentinel_timeout_s` | `15.0` | 等待首帧点云的超时 |
+| `managed_driver` | `true` | 在 Driver INIT 启动雷达和安装变换；false 只接收外部点云 |
+| `lidar_executable` | `$RSLIDAR_WS/install/rslidar_sdk/lib/rslidar_sdk/rslidar_sdk_node` | 雷达驱动路径 |
+| `lidar_config` | 不指定 | 通过 config_path 参数传给驱动的配置文件 |
+| `run_dir` | `rbnx-build/lidar` | 本原语启动的驱动和变换日志 |
 
 ## 注意
 

@@ -1,0 +1,183 @@
+# Source scripts/environment.sh before using rbnx.
+manifestVersion: 1
+name: lynx-outdoor-field
+system:
+  atlas:
+    listen: 127.0.0.1:51551
+  soma:
+    listen: 127.0.0.1:51591
+    robot_yaml: ${OUTDOOR_DEPLOY_ROOT}/config/soma.yaml
+primitive:
+- name: lynx_chassis
+  path: ../primitives/primitive-lynx_chassis
+  config:
+    allow_motion: true
+    allow_gait: true
+    robot_domain_id: 0
+    robot_ip: 10.21.33.103
+    robot_port: 30004
+    run_dir: ${OUTDOOR_DEPLOY_ROOT}/run/chassis
+- name: lynx_lidar
+  path: ../primitives/primitive-lynx_lidar
+  config:
+    managed_driver: true
+    points_topic: /airy_201/points
+    qos: reliable
+    sentinel_timeout_s: 10.0
+    lidar_executable: ${RSLIDAR_WS}/install/rslidar_sdk/lib/rslidar_sdk/rslidar_sdk_node
+    lidar_config: ${OUTDOOR_DEPLOY_ROOT}/config/front_lidar.yaml
+    run_dir: ${OUTDOOR_DEPLOY_ROOT}/run/lidar
+- name: g70_gnss
+  path: ${OUTDOOR_DEPLOY_ROOT}/packages/primitive-g70-gnss-rbnx
+  manifest: package_manifest.namespace-driver.yaml
+  config:
+    driver_config: ${OUTDOOR_DEPLOY_ROOT}/config/gnss.base.yaml
+    receiver_protocol: ubx_nav_pvt
+    serial:
+      port: /dev/serial/by-id/usb-u-blox_AG_-_www.u-blox.com_u-blox_GNSS_receiver-if00
+      baud: 115200
+    require_velocity: true
+    ntrip:
+      password_env: NTRIP_PASSWORD
+- name: wit_imu
+  path: ${OUTDOOR_DEPLOY_ROOT}/packages/primitive-wit-imu-rbnx
+  manifest: package_manifest.namespace-driver.yaml
+  config:
+    serial:
+      port: /dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+      baud: 115200
+    device_profile: inertial
+service:
+- name: localization_outdoor
+  path: ${OUTDOOR_DEPLOY_ROOT}/packages/service-localization-outdoor-rbnx
+  config:
+    origin:
+      latitude: 0.0
+      longitude: 0.0
+    provider_ids:
+      gnss: g70_gnss
+      imu: wit_imu
+    antenna_xy_m:
+    - 0.0
+    - 0.0
+    map_offset_xy_m:
+    - 0.0
+    - 0.0
+    calibrated: true
+    antenna_offset_confirmed: true
+    feedback_confirmed: true
+    velocity_accuracy_confirmed: false
+    imu:
+      base_from_imu_rotation:
+      - - 0.0
+        - -1.0
+        - 0.0
+      - - 1.0
+        - 0.0
+        - 0.0
+      - - 0.0
+        - 0.0
+        - 1.0
+      mounting_confirmed: true
+      reference_confirmed: true
+      magnetic_declination_rad: -0.0995
+      quality_confirmed: false
+      yaw_std_deg: null
+      course_heading: false
+      timeout_s: 0.5
+    output_topics:
+      odom: /localization/odom
+      pose: /localization/pose
+      status: /localization/status
+      tf: /outdoor/tf
+      tf_static: /tf_static
+    run_dir: ${OUTDOOR_DEPLOY_ROOT}/run/localization
+    http_port: 19980
+    worker_python: ${OUTDOOR_DEPLOY_ROOT}/.venv/bin/python
+    require_map_reference: true
+    estimator_mode: eskf
+    fusion:
+      stationary_s: 5.0
+      history_s: 2.0
+      imu_xyz_m:
+      - 0.0
+      - 0.0
+      - 0.0
+      max_horizontal_2sigma_m: 3.0
+      max_yaw_2sigma_deg: 30.0
+- name: outdoor_mapping
+  path: ${OUTDOOR_DEPLOY_ROOT}/packages/service-map-outdoor-rbnx
+  config:
+    data_dir: ${OUTDOOR_DEPLOY_ROOT}/data/outdoor_mapping
+    gnss_provider_id: g70_gnss
+    gait:
+      topic: /MOTION_INFO
+      msg_type: drdds/msg/MotionInfo
+      field: data.gait_state.gait
+    lifecycle_topic: /robonix/outdoor_map/lifecycle
+- name: scene
+  path: ${OUTDOOR_DEPLOY_ROOT}/framework/robonix/system/scene
+  manifest: package_manifest.annotate-native.yaml
+  config:
+    perception:
+      profile: annotate
+    web_host: 127.0.0.1
+    web_port: 50108
+    web_viewer: 'off'
+    map_providers:
+      outdoor: outdoor_mapping
+    outdoor_navigation:
+      run_dir: ${OUTDOOR_DEPLOY_ROOT}/run/scene_requests
+      policy:
+        fixed_arrival_m: 3.0
+        float_arrival_m: 3.0
+      execution_enabled: true
+      localization_config_path: ${OUTDOOR_DEPLOY_ROOT}/run/localization/config.json
+    observations:
+    - kind: occupancy_grid
+      contract: robonix/service/navigation_outdoor/costmap
+      provider_id: outdoor_execution
+      msg_type: OccupancyGrid
+    camera_viewer_port: 8080
+- name: outdoor_execution
+  path: ${OUTDOOR_DEPLOY_ROOT}/packages/service-navigation-outdoor-rbnx
+  config:
+    params_file: ${OUTDOOR_DEPLOY_ROOT}/packages/service-navigation-outdoor-rbnx/config/nav2_params.example.yml
+    provider_ids:
+      cloud: lynx_lidar
+      localization: localization_outdoor
+      chassis: lynx_chassis
+    topic_remap:
+      tf: /outdoor/tf
+      tf_static: /tf_static
+      chassis: /outdoor/chassis_status
+    gait_switching_enabled: true
+    velocity_output_topic: /cmd_vel
+    global_grid:
+      origin:
+      - -40.0
+      - -40.0
+      width: 80.0
+      height: 80.0
+      resolution: 0.1
+      rolling: true
+    action_wait_s: 120.0
+    run_dir: ${OUTDOOR_DEPLOY_ROOT}/run/navigation
+    http_port: 19985
+    policy:
+      motion_enabled: true
+      calibrated: true
+      antenna_offset_confirmed: true
+      footprint_confirmed: true
+      cloud_frame_confirmed: true
+      feedback_confirmed: true
+      require_chassis_ready: true
+      footprint_radius_m: 0.6
+      cloud_min_height_m: -0.3
+      cloud_max_height_m: 0.3
+      scan_range_min_m: 0.5
+      max_speed_mps: 0.4
+      fixed_arrival_m: 3.0
+      float_arrival_m: 3.0
+      gait_switch_timeout_s: 10.0
+    worker_python: ${OUTDOOR_DEPLOY_ROOT}/.venv/bin/python

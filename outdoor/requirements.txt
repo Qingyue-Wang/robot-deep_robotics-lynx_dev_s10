@@ -1,0 +1,12 @@
+grpcio-tools==1.76.0
+numpy<2
+scipy
+Pillow
+PyYAML>=6
+pyserial
+httpx
+uvicorn
+starlette<1
+setuptools<81
+packaging>=24
+pytest>=7

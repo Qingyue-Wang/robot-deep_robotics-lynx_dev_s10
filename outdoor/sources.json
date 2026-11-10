@@ -2,17 +2,17 @@
   {
     "path": "packages/service-map-outdoor-rbnx",
     "url": "https://github.com/syswonder/service-map-outdoor-rbnx.git",
-    "revision": "5b98d4d69e33662e0e03da3b2d424e0d659edb9c"
+    "revision": "d6346abc6c17f05e19349dc72c9471cb82969771"
   },
   {
     "path": "packages/service-navigation-outdoor-rbnx",
     "url": "https://github.com/syswonder/service-navigation-outdoor-rbnx.git",
-    "revision": "adf72e5026f8f3c99f5a0d59c2609a7d770fe15c"
+    "revision": "0a495a4f707ff0043cf31b6cb96cd8df3da45b2c"
   },
   {
     "path": "packages/service-localization-outdoor-rbnx",
     "url": "https://github.com/syswonder/service-localization-outdoor-rbnx.git",
-    "revision": "54bec1fd01c61cbb165201daa819ab86918b0163"
+    "revision": "02e842872b1ade984a486cd207ec4d9103337553"
   },
   {
     "path": "packages/primitive-g70-gnss-rbnx",
@@ -22,11 +22,11 @@
   {
     "path": "packages/primitive-wit-imu-rbnx",
     "url": "https://github.com/syswonder/primitive-wit-imu-rbnx.git",
-    "revision": "2df8f8537a17ac86366009b74076c19c9471707c"
+    "revision": "f681af587c0abd0ba1a1531f1797580843687436"
   },
   {
     "path": "framework/robonix",
     "url": "https://github.com/syswonder/robonix.git",
-    "revision": "2eb858391c687859e2dbcc3352ca047bb53d3a5f"
+    "revision": "1b369148b0a4ed2c6ec7213182b825655bbba9c9"
   }
 ]

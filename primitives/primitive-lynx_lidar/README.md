@@ -20,10 +20,14 @@ rbnx codegen -p . --mcp
 bash scripts/start.sh
 ```
 
-`scripts/start.sh` sources `~/rslidar_ws`, publishes the `base_link -> airy_201`
-(front, pitched) static TF from the S10 URDF, launches `rslidar_sdk_node`, then
-runs the primitive; the driver and TF publisher are torn down with the primitive.
+`scripts/start.sh` loads ROS and `~/rslidar_ws`, then runs the primitive.
+Driver INIT launches `rslidar_sdk_node` and the `base_link -> airy_201` static TF;
+Driver SHUTDOWN stops only these owned processes. It never kills processes by name.
 Override the workspace with `RSLIDAR_WS=/path/to/ws` if it is not under `~/rslidar_ws`.
+
+Set `managed_driver: false` to consume an externally managed cloud. Otherwise
+`lidar_executable`, `lidar_config` and `run_dir` configure the owned driver.
+A device lock rejects a second managed instance; a helper crash stops the primitive.
 
 See `CAPABILITY.md`. The rslidar topics have no flowing data until the lidar is
 powered and returning UDP; the primitive stays Deferred until then.

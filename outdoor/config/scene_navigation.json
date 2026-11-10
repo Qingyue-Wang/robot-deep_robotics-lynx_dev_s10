@@ -1,9 +1,0 @@
-{
-  "run_dir": "/home/nvidia/robot-outdoor-rbnx/run/scene_requests",
-  "policy": {
-    "fixed_arrival_m": 3.0,
-    "float_arrival_m": 3.0
-  },
-  "localization_config_path": "/home/nvidia/robot-outdoor-rbnx/run/localization/config.json",
-  "execution_enabled": false
-}

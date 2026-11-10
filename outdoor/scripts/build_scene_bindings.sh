@@ -2,7 +2,7 @@
 # One generated contracts module must contain both Scene's and consumed RPCs.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TARGET="${1:-$ROOT}"
+TARGET="${1:?Scene package directory required}"
 PY="${2:-$ROOT/.venv/bin/python}"
 NAV="$ROOT/packages/service-navigation-outdoor-rbnx/capabilities"
 mkdir -p "$ROOT/rbnx-build"

@@ -2,13 +2,17 @@
 from concurrent import futures
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
+import yaml
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path[:0]=[str(ROOT),str(ROOT/'tests'),str(ROOT/'framework/robonix/system/scene'),
-               str(ROOT/'packages/service-map-outdoor-rbnx'),str(ROOT/'packages/service-navigation-outdoor-rbnx'),str(ROOT/'packages/service-navigation-outdoor-rbnx/tests')]
+PACKAGES=Path(os.environ.get('OUTDOOR_PACKAGES_ROOT', ROOT/'packages'))
+FRAMEWORK=Path(os.environ.get('OUTDOOR_FRAMEWORK_ROOT', ROOT/'framework/robonix'))
+sys.path[:0]=[str(ROOT/'tests'),str(FRAMEWORK/'system/scene'),
+               str(PACKAGES/'service-map-outdoor-rbnx'),str(PACKAGES/'service-navigation-outdoor-rbnx'),str(PACKAGES/'service-navigation-outdoor-rbnx/tests')]
 from test_scene_wire import Worker
 from outdoor_nav import atlas_bridge as bridge
 from outdoor_nav.client import ExecutionClient
@@ -65,7 +69,8 @@ def fixture():
                 return {'ok':True,**result}
             except (ValueError,KeyError) as error:return {'ok':False,'detail':str(error)}
         map_clients.call=call
-        config=json.loads((ROOT/'config/scene_navigation.json').read_text())
+        manifest=yaml.safe_load((ROOT/'robonix_manifest.yaml').read_text())
+        config=next(item for item in manifest['service'] if item['name']=='scene')['config']['outdoor_navigation']
         config.update(run_dir=str(run/'requests'),execution=Wire(),execution_enabled=True)
         config.pop('localization_config_path',None)
         app=make_app(registry=ObjectRegistry(),anno_store=AnnotationStore(str(run/'annotations'),map_id='.live'),

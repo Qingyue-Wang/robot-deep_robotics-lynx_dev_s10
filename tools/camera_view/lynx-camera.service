@@ -1,0 +1,13 @@
+[Unit]
+Description=Lynx camera web view (1 fps JPEG over SSH tunnel)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/robot-deep_robotics-lynx_s10
+ExecStart=/usr/bin/python3 %h/robot-deep_robotics-lynx_s10/tools/camera_view/server.py --config %h/robot-deep_robotics-lynx_s10/tools/camera_view/config.json
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
