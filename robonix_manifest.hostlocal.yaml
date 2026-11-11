@@ -130,8 +130,7 @@ primitive:
   # frame within sentinel_timeout_s, which fails soma stage 1. Re-enable after
   # checking MediaMTX; consider raising sentinel_timeout_s to 60.
   # - name: lynx_camera
-  #   url: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-camera-rbnx
-  #   branch: main
+  #   path: ./primitives/primitive-lynx_camera
   #   config:
   #     channels:
   #       - {name: video4, url: "rtsp://10.21.33.103:8554/video4", enabled: true, primary: true}

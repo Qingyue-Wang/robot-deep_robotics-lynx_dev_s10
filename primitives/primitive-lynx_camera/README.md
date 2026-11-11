@@ -1,5 +1,9 @@
 # primitive-lynx_camera
 
+Maintained in this robot repository at `primitives/primitive-lynx_camera`,
+including `lynx_camera/`, `tests/`, scripts and documentation.
+Deployment manifests reference this local package with `path:`.
+
 Robonix wide-angle RGB camera primitive for the DeepRobotics Lynx S10 ("山猫").
 The S10's depth topic (`/DEPTH_IMAGE`) is registered but not flowing; its four
 wide-angle RGB cameras are served over RTSP by a MediaMTX instance

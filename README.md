@@ -9,6 +9,7 @@
 | [outdoor/](outdoor/README.md) | RTK＋WIT IMU、道路录制和室外导航，默认检查模式 |
 | `primitives/primitive-lynx_chassis` | 受控速度、步态与实际状态接口，不自动改变姿态 |
 | `primitives/primitive-lynx_lidar` | 受管雷达驱动和点云接口 |
+| [primitives/primitive-lynx_camera](primitives/primitive-lynx_camera/README.md) | 山猫相机原语，代码、测试和说明统一在本仓库维护 |
 | `primitives/primitive-lynx_fastlio` | 原有雷达惯性定位接口 |
 | `soma.yaml`、`urdf/` | 本体描述 |
 | [tools/camera_view](tools/camera_view/README.md) | 四路相机网页与电量显示，独立于导航启动 |

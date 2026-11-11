@@ -200,8 +200,7 @@ primitive:
     config: {}
 
   # - name: lynx_camera
-  #   url: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-camera-rbnx
-  #   branch: main
+  #   path: ./primitives/primitive-lynx_camera
   #   config:
   #     # The S10's depth topic (/DEPTH_IMAGE) is registered but not flowing, so
   #     # we pull RGB directly from the onboard MediaMTX RTSP server instead.
