@@ -79,7 +79,7 @@ system:
   liaison: {listen: 0.0.0.0:50081, log: info}
   scene:
     log: info
-    # camera_provider_id: orbbec_camera
+    camera_provider_id: lynx_camera
   # vitals:
   #   listen: 0.0.0.0:50093
   #   log: info
@@ -213,23 +213,16 @@ primitive:
       qos: best_effort              # no flow control; drops single samples, not the stream
       sentinel_timeout_s: 60.0      # rslidar 节点启动约 20s，留足余量
 
-  # - name: lynx_camera
-  #   url: https://github.com/syswonder/primitive-deep_robotics-lynx_s10-camera-rbnx
-  #   branch: main
-  #   config:
-  #     # The S10's depth topic (/DEPTH_IMAGE) is registered but not flowing, so
-  #     # we pull RGB directly from the onboard MediaMTX RTSP server instead.
-  #     # Four wide-angle channels, H.264 1024x576@30. Set `enabled: false` on all
-  #     # but one to save decode + DDS resources.
-  #     channels:
-  #       - {name: video4, url: "rtsp://10.21.33.103:8554/video4", enabled: true, primary: true}
-  #       - {name: video0, url: "rtsp://10.21.33.103:8554/video0", enabled: false}
-  #       - {name: video2, url: "rtsp://10.21.33.103:8554/video2", enabled: false}
-  #       - {name: video6, url: "rtsp://10.21.33.103:8554/video6", enabled: false}
-  #     qos: best_effort
-  #     publish_hz: 10.0        # per-channel DDS publish cap (4x30Hz would saturate the bus)
-  #     jpeg_quality: 85
-  #     sentinel_timeout_s: 20.0
+  - name: lynx_camera
+    path: ./primitives/primitive-lynx_camera
+    config:
+      channels:
+        - {name: video4, url: "rtsp://10.21.33.103:8554/video4", primary: true}
+      qos: best_effort
+      publish_hz: 5.0
+      jpeg_quality: 85
+      frame_timeout_s: 5.0
+      sentinel_timeout_s: 15.0
 
   # - name: lynx_health
   #   path: ./primitives/primitive-lynx_health

@@ -46,15 +46,14 @@ primitive:
     path: /home/dog/.local/share/robonix-console/deployments/default/packages/primitive-deep-robotics-lynx-chassis-rbnx
     config: {}
 
-  # S10 前视 RGB 暂时不挂：本次 boot 时 RTSP video4 20s 内没出帧，
-  # 会让 soma stage 1 整体失败。需要时单独排查 MediaMTX 后再加回。
-  # - name: lynx_camera
-  #   path: ./primitives/primitive-lynx_camera
-  #   config:
-  #     channels:
-  #       - {name: video4, url: "rtsp://10.21.33.103:8554/video4", enabled: true, primary: true}
-  #     publish_hz: 10.0
-  #     sentinel_timeout_s: 20.0
+  - name: lynx_camera
+    path: ./primitives/primitive-lynx_camera
+    config:
+      channels:
+        - {name: video4, url: "rtsp://10.21.33.103:8554/video4", primary: true}
+      publish_hz: 5.0
+      frame_timeout_s: 5.0
+      sentinel_timeout_s: 15.0
 
 # 本机没有雷达/IMU 链路，mapping/nav2 先不挂。
 service: []

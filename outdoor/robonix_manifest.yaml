@@ -8,6 +8,14 @@ system:
     listen: 127.0.0.1:51591
     robot_yaml: ${OUTDOOR_DEPLOY_ROOT}/config/soma.yaml
 primitive:
+- name: lynx_camera
+  path: ../primitives/primitive-lynx_camera
+  config:
+    channels:
+    - {name: video4, url: 'rtsp://10.21.33.103:8554/video4', primary: true}
+    publish_hz: 5.0
+    frame_timeout_s: 5.0
+    sentinel_timeout_s: 15.0
 - name: lynx_chassis
   path: ../primitives/primitive-lynx_chassis
   config:
@@ -134,7 +142,7 @@ service:
       execution_enabled: false
       localization_config_path: ${OUTDOOR_DEPLOY_ROOT}/run/localization/config.json
     observations: []
-    camera_viewer_port: 8080
+    camera_provider_id: lynx_camera
 - name: outdoor_execution
   path: ${OUTDOOR_DEPLOY_ROOT}/packages/service-navigation-outdoor-rbnx
   config:

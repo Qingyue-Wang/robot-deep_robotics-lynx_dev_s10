@@ -22,11 +22,11 @@ H.264 1024×576@30。本原语拉取这些 RTSP 流，解码为 BGR，并把每�
 
 ## 注意
 
-- 只提供 **RGB**，不提供深度（`/DEPTH_IMAGE` 无数据，`check_rtsp.py` 已确认 RTSP 可用）。
+- 只提供 **RGB**，不提供深度（`/DEPTH_IMAGE` 无数据）。前 video4、后 video0、左 video2、右 video6。
 - `snapshot` 返回 JPEG 编码的 `sensor_msgs/Image`（`encoding='jpeg'`），智能体直接当图用。
 - 未声明 `intrinsics`/`extrinsics`：S10 的相机几何应由 URDF/TF 提供，需要时再补。
-- 解码在子线程中进行，`publish_hz` 限制 DDS 发布频率（四路同时 30Hz 会吃满总线），
-  但缓存仍以解码帧率刷新，所以 `snapshot` 永远是最新的一帧。
+- 使用系统 `ffmpeg` 通过 TCP 取流，`publish_hz` 限制输出帧率；无需 OpenCV。
+  断流超时后自动重连，断流或缓存过期时快照明确报错。
 
 ## Config（部署清单 `config:`）
 
@@ -40,6 +40,7 @@ H.264 1024×576@30。本原语拉取这些 RTSP 流，解码为 BGR，并把每�
 | `qos` | `best_effort` | 声明的 QoS |
 | `publish_hz` | `10.0` | 每通道 DDS 发布频率上限 |
 | `jpeg_quality` | `85` | snapshot 的 JPEG 质量 |
-| `sentinel_timeout_s` | `20.0` | 等待主通道首帧的超时 |
+| `frame_timeout_s` | `5.0` | 无完整帧时重连；也是快照允许的最大帧龄 |
+| `sentinel_timeout_s` | `20.0` | 等待主通道首帧的超时；设为 `0` 时后台连接，不阻塞其他服务启动 |
 
 只保留一路省资源时，把其余三项的 `enabled` 置为 `false` 即可，无需改代码。

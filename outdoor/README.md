@@ -17,6 +17,10 @@ flock -n run/boot.lock rbnx boot -f robonix_manifest.yaml --no-update-check -v
 运动模式使用 `robonix_manifest.field.yaml`，先停止检查模式，两者共用同一个启动锁。
 网页在机器人回环地址 `http://127.0.0.1:50108/outdoor`。
 
+两份清单均启动山猫前摄像头（video4），Scene 的 `/cam` 直接显示原语画面，
+不依赖 `tools/camera_view` 网页。需安装 `ffmpeg`，Python 环境需有 NumPy 和 Pillow。
+独立工具网页仍可用于切换前后左右相机。
+
 本体通信在 domain 0，室外程序在 domain 80。不使用本体 `/ODOM`。
 启动不自动站起或发目标；航向质量尚未确认，动态精度与真实楼梯待现场验收。
 

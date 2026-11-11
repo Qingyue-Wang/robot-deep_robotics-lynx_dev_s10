@@ -17,11 +17,15 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import threading
 import time
+from io import BytesIO
 
-import cv2
 import numpy as np
+from PIL import Image as PILImage
+
+from .rtsp import jpeg_frames
 
 from robonix_api import Primitive, Ok, Err
 
@@ -32,9 +36,6 @@ logging.basicConfig(
 log = logging.getLogger("lynx_camera")
 
 lynx_camera = Primitive(id="lynx_camera", namespace="robonix/primitive/camera")
-
-# FFMPEG RTSP backend: force TCP transport (reliable over the S10's switch).
-os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
 from sensor_msgs.msg import Image  # noqa: E402
 
@@ -47,7 +48,7 @@ from sensor_msgs_mcp import Image as MCPImage  # noqa: E402
 
 # ── runtime state ────────────────────────────────────────────────────────────
 _state_lock = threading.Lock()
-_latest: dict[str, np.ndarray] = {}      # channel name -> latest BGR frame
+_latest: dict[str, tuple[np.ndarray, float, tuple[int, int]]] = {}
 _primary_name: str = ""                  # channel served as camera/rgb + snapshot
 _primary_frame_evt = threading.Event()
 _stop = threading.Event()
@@ -55,6 +56,7 @@ _threads: list[threading.Thread] = []
 _qos = "best_effort"
 _publish_hz = 10.0
 _jpeg_quality = 85
+_frame_timeout_s = 5.0
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -63,8 +65,8 @@ def _stamp_now() -> tuple[int, int]:
     return int(t), int((t % 1.0) * 1e9) % 1_000_000_000
 
 
-def _mcp_header(frame_id: str) -> std_msgs_mcp.Header:
-    sec, nsec = _stamp_now()
+def _mcp_header(frame_id: str, stamp: tuple[int, int]) -> std_msgs_mcp.Header:
+    sec, nsec = stamp
     return std_msgs_mcp.Header(
         stamp=builtin_interfaces_mcp.Time(sec=sec, nanosec=nsec),
         frame_id=frame_id,
@@ -75,49 +77,43 @@ def _mcp_header(frame_id: str) -> std_msgs_mcp.Header:
 def _decoder_loop(name: str, url: str, pub) -> None:
     """Pull one RTSP channel and publish BGR8 frames until stopped.
 
-    Reconnects on read failure. Always caches the freshest frame so snapshot is
-    never older than one decode; publishing is throttled to ``_publish_hz`` to
-    keep DDS traffic bounded across four channels.
+    ffmpeg bounds the output rate before Python decodes and publishes frames.
     """
     backoff = 1.0
     while not _stop.is_set():
-        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-        if not cap.isOpened():
-            log.warning("channel %s: open failed (%s); retry in %.1fs", name, url, backoff)
-            _stop.wait(backoff)
-            backoff = min(backoff * 2.0, 10.0)
-            continue
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # keep latency low
-        backoff = 1.0
-        log.info("channel %s: connected (%s)", name, url)
-        next_pub = 0.0
+        frames = jpeg_frames(url, _stop, _publish_hz, _frame_timeout_s)
         try:
-            while not _stop.is_set():
-                ret, frame = cap.read()
-                if not ret or frame is None:
-                    log.warning("channel %s: read failed; reconnecting", name)
-                    break
+            for jpeg in frames:
+                with PILImage.open(BytesIO(jpeg)) as decoded:
+                    frame = np.asarray(decoded.convert("RGB"))[:, :, ::-1].copy()
                 now = time.monotonic()
+                stamp = _stamp_now()
+                img = Image()
+                img.header.stamp.sec, img.header.stamp.nanosec = stamp
+                img.header.frame_id = f"camera_{name}_optical_frame"
+                img.height, img.width = frame.shape[:2]
+                img.encoding = "bgr8"
+                img.is_bigendian = 0
+                img.step = img.width * 3
+                img.data = frame.tobytes()
+                pub.publish(img)
                 with _state_lock:
-                    _latest[name] = frame
+                    first = name not in _latest
+                    _latest[name] = (frame, now, stamp)
+                if first:
+                    log.info("channel %s: receiving %dx%d (%s)", name, img.width, img.height, url)
+                backoff = 1.0
                 if name == _primary_name:
                     _primary_frame_evt.set()
-                if now >= next_pub:
-                    img = Image()
-                    img.header.stamp.sec, img.header.stamp.nanosec = _stamp_now()
-                    img.header.frame_id = f"camera_{name}_optical_frame"
-                    img.height = int(frame.shape[0])
-                    img.width = int(frame.shape[1])
-                    img.encoding = "bgr8"
-                    img.is_bigendian = 0
-                    img.step = int(frame.shape[1]) * 3
-                    img.data = frame.tobytes()
-                    pub.publish(img)
-                    next_pub = now + (1.0 / _publish_hz)
+        except Exception as error:
+            log.warning("channel %s: %s; retry in %.1fs", name, error, backoff)
         finally:
-            cap.release()
+            frames.close()
+            with _state_lock:
+                _latest.pop(name, None)
         if not _stop.is_set():
-            _stop.wait(1.0)
+            _stop.wait(backoff)
+            backoff = min(backoff * 2.0, 10.0)
 
 
 # ── MCP snapshot (primary channel) ───────────────────────────────────────────
@@ -128,22 +124,21 @@ def snapshot(req: GetCameraImage_Request) -> GetCameraImage_Response:
     the robot's main camera is looking at."""
     _ = req
     with _state_lock:
-        frame = _latest.get(_primary_name)
-    if frame is None:
-        raise RuntimeError("no RGB frame received yet")
-    ok, buf = cv2.imencode(
-        ".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), _jpeg_quality]
-    )
-    if not ok:
-        raise RuntimeError("jpeg encode failed")
+        latest = _latest.get(_primary_name)
+    if latest is None or time.monotonic() - latest[1] > _frame_timeout_s:
+        raise RuntimeError("no fresh RGB frame available")
+    frame, _, stamp = latest
+    buf = BytesIO()
+    PILImage.fromarray(frame[:, :, ::-1]).save(buf, format="JPEG", quality=_jpeg_quality)
+    data = buf.getvalue()
     h, w = frame.shape[:2]
     return GetCameraImage_Response(image=MCPImage(
-        header=_mcp_header(f"camera_{_primary_name}_optical_frame"),
+        header=_mcp_header(f"camera_{_primary_name}_optical_frame", stamp),
         height=int(h), width=int(w),
         encoding="jpeg",
         is_bigendian=0,
-        step=len(buf),
-        data=bytes(buf),
+        step=len(data),
+        data=data,
     ))
 
 
@@ -152,7 +147,17 @@ def snapshot(req: GetCameraImage_Request) -> GetCameraImage_Response:
 def init(cfg: dict):
     """Spawn one decoder thread per enabled channel; declare the primary as
     camera/rgb once its first frame lands."""
-    global _primary_name, _qos, _publish_hz, _jpeg_quality
+    global _primary_name, _qos, _publish_hz, _jpeg_quality, _frame_timeout_s
+
+    if any(t.is_alive() for t in _threads):
+        return Err("camera is already initialized")
+    _threads.clear()
+    _stop.clear()
+    _primary_frame_evt.clear()
+    with _state_lock:
+        _latest.clear()
+    if shutil.which("ffmpeg") is None:
+        return Err("ffmpeg is required; install it before starting lynx_camera")
 
     raw_channels = cfg.get("channels", []) or []
     if not raw_channels:
@@ -161,6 +166,7 @@ def init(cfg: dict):
     _qos = str(cfg.get("qos", "best_effort"))
     _publish_hz = max(1.0, float(cfg.get("publish_hz", 10.0)))
     _jpeg_quality = int(cfg.get("jpeg_quality", 85))
+    _frame_timeout_s = max(1.0, float(cfg.get("frame_timeout_s", 5.0)))
     sentinel_timeout = float(cfg.get("sentinel_timeout_s", 20.0))
 
     channels = []
@@ -203,10 +209,13 @@ def init(cfg: dict):
         _threads.append(t)
 
     # Gate INIT on the primary channel's first frame.
-    if not _primary_frame_evt.wait(timeout=sentinel_timeout):
+    if sentinel_timeout > 0 and not _primary_frame_evt.wait(timeout=sentinel_timeout):
+        shutdown()
         return Err(
             f"no frame from primary channel {_primary_name} within {sentinel_timeout:.1f}s"
         )
+    if not _primary_frame_evt.is_set():
+        log.info("camera input pending; connecting in the background")
 
     lynx_camera.declare_ros2_topic(
         "robonix/primitive/camera/rgb",

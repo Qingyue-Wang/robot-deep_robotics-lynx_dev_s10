@@ -66,6 +66,16 @@ def test_profiles_isolate_motion_and_share_the_same_dependencies():
         }
         assert items["localization_outdoor"]["config"]["estimator_mode"] == "eskf"
         assert items["wit_imu"]["config"]["device_profile"] == "inertial"
+        camera = items["lynx_camera"]["config"]
+        assert any(c.get("primary") and c["url"].endswith("/video4")
+                   for c in camera["channels"])
+        scene = items["scene"]["config"]
+        assert scene["camera_provider_id"] == "lynx_camera"
+        assert not scene.get("camera_viewer_port")
+        if scene.get("observations"):
+            assert any(o["kind"] == "rgb" and o["provider_id"] == "lynx_camera"
+                       and o["contract"] == "robonix/primitive/camera/rgb"
+                       for o in scene["observations"])
         assert items["localization_outdoor"]["config"]["require_map_reference"] is True
         assert "/ODOM" not in json.dumps(manifest)
 
