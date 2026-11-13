@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """依次走到 4 个观察位姿，并在每个位置抓一帧 /camera_435i/color/image_raw 存图。"""
+import json
 import os
 import sys
 import time
@@ -32,6 +33,20 @@ POSES = [
     ("3_rec2", [7.45, 52.60, -53.59, 0.0, 59.35, 7.69]),
     ("4_home", [0.0, 0.0, 0.0, 0.0, 25.0, 0.0]),
 ]
+
+
+def _load_poses_from_argv():
+    """--poses <json>：{"名字": [j1..j6], ...} 或 [[j1..j6], ...]；返回 [(名字, 关节)]。"""
+    argv = sys.argv[1:]
+    if "--poses" not in argv:
+        return POSES
+    path = argv[argv.index("--poses") + 1]
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    if isinstance(data, dict):
+        return [(name, [float(v) for v in joints]) for name, joints in data.items()]
+    return [("pose%d" % (index + 1), [float(v) for v in joints])
+            for index, joints in enumerate(data)]
 
 
 class Grabber(Node):
@@ -74,7 +89,7 @@ def main():
 
     arm.enable_and_take_control(timeout_s=20, speed=30)
 
-    for name, target in POSES:
+    for name, target in _load_poses_from_argv():
         print(f"\n=== {name} -> {target}", flush=True)
         before = node.count
         ok = arm.move_joints(target, speed=30, timeout_s=60, tolerance_deg=1.5)
