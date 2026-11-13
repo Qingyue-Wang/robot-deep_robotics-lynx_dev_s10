@@ -2,7 +2,7 @@
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
-MANIFEST="${ROBONIX_MANIFEST:-$DEPLOY_DIR/robonix_manifest.yaml}"
+MANIFEST="${ROBONIX_MANIFEST:-$DEPLOY_DIR/robonix_manifest.nx.yaml}"
 LOG_DIR="$DEPLOY_DIR/logs"
 mkdir -p "$LOG_DIR"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
@@ -14,6 +14,11 @@ if [[ -f "$DEPLOY_DIR/.env" ]]; then
   source "$DEPLOY_DIR/.env"
   set +a
 fi
+
+# Pilot 的部署级行为规则：抓取默认趴着、不要站起来（见 pilot_soul.md）。
+# rbnx boot 会把它传给 robonix-pilot；pilot 在每个任务回合开始时读取。
+# .env 里可以覆盖，没设时回落到 ~/.robonix/SOUL.md。
+export ROBONIX_PILOT_SOUL="${ROBONIX_PILOT_SOUL:-$DEPLOY_DIR/pilot_soul.md}"
 
 # The S10 publishes its native ROS 2 topics (drdds + nav_msgs) over the default
 # RMW (Fast DDS). Unlike the Lite3 deploy (which pins rmw_zenoh_cpp and starts

@@ -136,6 +136,11 @@ class OdomMonitor:
     def blocking_reason(self, now: float) -> str | None:
         return self.stale_reason(now) or self.fault_reason(now)
 
+    @property
+    def has_samples(self) -> bool:
+        """False until the first /odom sample arrives (boot grace)."""
+        return self._last_t is not None
+
 
 def _yaw_of(q) -> float:
     return math.atan2(2.0 * (q.w * q.z + q.x * q.y),
@@ -179,7 +184,11 @@ def main() -> int:
             self.create_subscription(Odometry, odom_topic, self._on_odom, 50)
             self.create_subscription(Twist, input_topic, self._on_cmd, 20)
             self._cancel = self.create_client(CancelGoal, cancel_service)
+            self._cancel_after_s = float(cfg.get("cancel_after_s", 3.0))
             self._cancel_sent = False
+            self._block_since: float | None = None
+            self._block_logged = False
+            self._waiting_log_at = 0.0
             self._last_reason = ""
             self._odom_log_at = 0.0
             self.create_timer(1.0 / max(tick_hz, 1.0), self._tick)
@@ -208,23 +217,45 @@ def main() -> int:
             # keeps a stale nav2 command from sneaking through between ticks.
 
         def _tick(self) -> None:
-            reason = self.monitor.blocking_reason(time.monotonic())
+            now = time.monotonic()
+            reason = self.monitor.blocking_reason(now)
             if reason is not None:
                 self._pub.publish(Twist())          # keep the base stopped
-                if not self._cancel_sent:
-                    self._cancel_sent = True
-                    self.get_logger().error(
-                        f"stopping base: {reason}; cancelling navigation goal")
-                    if self._cancel.service_is_ready():
-                        # Zeroed goal_info = "cancel all goals" (CancelGoal.srv).
-                        self._cancel.call_async(CancelGoal.Request())
-                    else:
+                if not self.monitor.has_samples:
+                    # Boot grace: zero the base, but never cancel a goal that may
+                    # have been queued before the guard saw its first sample.
+                    if now - self._waiting_log_at >= 10.0:
+                        self._waiting_log_at = now
                         self.get_logger().warning(
-                            f"{cancel_service} not available; base still zeroed")
+                            f"waiting for the first {odom_topic} sample before "
+                            f"gating commands ({reason})")
+                    return
+                if self._block_since is None:
+                    self._block_since = now
+                if not self._block_logged:
+                    self._block_logged = True
+                    self.get_logger().error(
+                        f"stopping base: {reason}; cancelling the navigation "
+                        f"goal if odom stays unhealthy for "
+                        f"{self._cancel_after_s:.1f}s")
+                if self._cancel_sent or now - self._block_since < self._cancel_after_s:
+                    return
+                self._cancel_sent = True
+                if self._cancel.service_is_ready():
+                    # Zeroed goal_info = "cancel all goals" (CancelGoal.srv).
+                    self._cancel.call_async(CancelGoal.Request())
+                else:
+                    self.get_logger().warning(
+                        f"{cancel_service} not available; base still zeroed")
             elif self._cancel_sent:
                 self._cancel_sent = False
+                self._block_since = None
+                self._block_logged = False
                 self.get_logger().warning(
                     "odom healthy again; goal was cancelled — re-issue navigation")
+            else:
+                self._block_since = None
+                self._block_logged = False
 
     rclpy.init()
     node = OdomGuard()

@@ -17,10 +17,18 @@ output_topic: /cmd_vel
 cancel_service: /navigate_to_pose/_action/cancel_goal
 
 # Stop when no /odom sample arrives for this long. FAST-LIO publishes at
-# ~7-9 Hz on this Orin NX and occasionally gaps ~1 s while rtabmap spikes, so
-# 1.5 s tolerates those without tripping; the chassis still stops within
-# ~1.5 s if FAST-LIO really dies.
-stale_timeout_s: 1.5
+# ~7-9 Hz on this Orin NX and occasionally gaps ~1 s while rtabmap spikes; the
+# 2026-11-13 11:09/11:11/11:26 trips were 1.50-1.54 s arrival gaps that
+# recovered within 0.5 s, so 1.5 s was tripping on scheduler jitter, not on a
+# dead lidar. 2.0 s keeps ~1.3 s of margin over the observed idle jitter
+# (max arrival gap 0.37 s) while still stopping the chassis quickly.
+stale_timeout_s: 2.0
+
+# Zero the base as soon as odom is unhealthy, but only cancel the navigation
+# goal once the fault has lasted this long. Short gaps then resolve without
+# killing the goal; a real outage still ends the run. Startup (before the
+# first /odom sample) never cancels.
+cancel_after_s: 3.0
 
 # A single odom step larger than this is physically impossible for the S10
 # (top speed ~0.35 m/s): treat it as a jump/divergence.

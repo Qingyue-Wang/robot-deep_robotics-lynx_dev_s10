@@ -13,12 +13,20 @@ set +u
 if [ -f "/opt/ros/humble/setup.bash" ]; then
   source /opt/ros/humble/setup.bash
 fi
+
+RSLIDAR_NODE="$RSLIDAR_WS/install/rslidar_sdk/lib/rslidar_sdk/rslidar_sdk_node"
+# A fresh NX (or a wiped workspace) has no driver: install and build it here
+# instead of requiring a manual rslidar build. Idempotent; LYNX_LIDAR_AUTO_INSTALL=0
+# keeps the old "started externally" behaviour.
+if [ ! -x "$RSLIDAR_NODE" ] && [ "${LYNX_LIDAR_AUTO_INSTALL:-1}" != "0" ]; then
+  echo "[lynx_lidar] rslidar driver missing at $RSLIDAR_NODE; running scripts/install.sh" >&2
+  RSLIDAR_WS="$RSLIDAR_WS" bash "$PKG/scripts/install.sh"
+fi
+
 if [ -f "$RSLIDAR_WS/install/setup.bash" ]; then
   source "$RSLIDAR_WS/install/setup.bash"
 fi
 set -u
-
-RSLIDAR_NODE="$RSLIDAR_WS/install/rslidar_sdk/lib/rslidar_sdk/rslidar_sdk_node"
 RSLIDAR_PID=""
 TF_PID=""
 

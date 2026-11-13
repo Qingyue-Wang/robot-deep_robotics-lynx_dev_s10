@@ -81,6 +81,25 @@ _t_imu_base = (0.0, 0.0, 0.0)
 _published = 0
 _last_rx_monotonic = 0.0
 
+# Future offset added to the *TF* stamp (never to the /fastlio/odom message
+# stamp). Nav2 looks the robot pose up at "now": the goal-pose transform uses
+# the freshly stamped plan pose and waits only 100 ms (nav2_util default) for
+# TF data to reach it. FAST-LIO stamps each sample with the lidar time, so by
+# the time the TF crosses DDS the newest odom -> base_link sample is already
+# ~50 ms old (7.6 Hz, i.e. a 130 ms period), while rtabmap's map -> odom is
+# ~100 ms in the future. The chain map -> base_link is thus never valid at
+# "now". On 2026-11-11 11:10-11:25 that broke every tea-area goal:
+#
+#   [transformPoseInTargetFrame]: Extrapolation Error ... map -> base_link
+#     Requested time T, latest data at T - 20 ms
+#
+# nav2 then set no usable plan, published only zero /cmd_vel, and the run
+# ended with "Failed to make progress" after 10 s without the robot moving.
+# Stamping the TF a little ahead keeps the chain valid at "now"; the pose is
+# still interpolated between real measurements, and rtabmap / the odom guard
+# keep consuming the unchanged message stamps.
+_tf_stamp_tolerance_s = 0.0
+
 # Divergence guard. FAST-LIO can lose scan matching ("No Effective Points!" in
 # its log), after which the EKF integrates IMU alone and the pose runs away to
 # kilometres in seconds. A robot of this size cannot move faster than a few
@@ -222,6 +241,7 @@ def _load_geometry(fastlio_config: Path, mount_config: Path) -> None:
 def init(cfg):
     global _odom_pub, _tf_broadcaster, _odom_frame, _base_frame
     global _max_speed_mps, _max_jump_m, _max_yaw_rate_rps, _last_good, _diverged
+    global _tf_stamp_tolerance_s
 
     odom_topic = str(cfg.get("odom_topic", "/Odometry"))
     out_topic = str(cfg.get("odom_out_topic", "/fastlio/odom"))
@@ -229,6 +249,9 @@ def init(cfg):
     timeout = float(cfg.get("sentinel_timeout_s", 60.0))
     _odom_frame = str(cfg.get("odom_frame", "odom"))
     _base_frame = str(cfg.get("base_frame", "base_link"))
+    _tf_stamp_tolerance_s = max(
+        0.0, float(cfg.get("tf_stamp_tolerance_s", 0.0))
+    )
     _max_speed_mps = float(cfg.get("max_speed_mps", 2.0))
     _max_jump_m = float(cfg.get("max_jump_m", 0.6))
     _max_yaw_rate_rps = float(cfg.get("max_yaw_rate_rps", 4.0))
@@ -283,8 +306,10 @@ def init(cfg):
         ).start()
 
     log.info(
-        "lynx_fastlio ready: %s (%s -> imu) -> %s (%s -> %s, qos=%s)",
+        "lynx_fastlio ready: %s (%s -> imu) -> %s (%s -> %s, qos=%s, "
+        "tf_stamp+%.3fs)",
         odom_topic, _odom_frame, out_topic, _odom_frame, _base_frame, qos,
+        _tf_stamp_tolerance_s,
     )
     return Ok()
 
@@ -311,6 +336,16 @@ def _stamp(msg):
     if stamp.sec == 0 and stamp.nanosec == 0:
         return Clock().now().to_msg()
     return stamp
+
+
+def _shift_stamp(stamp, seconds: float):
+    """Return ``stamp`` moved ``seconds`` into the future (no-op for <= 0)."""
+    if seconds <= 0.0:
+        return stamp
+    total_ns = stamp.sec * 1_000_000_000 + stamp.nanosec + int(round(seconds * 1e9))
+    out = type(stamp)()
+    out.sec, out.nanosec = divmod(total_ns, 1_000_000_000)
+    return out
 
 
 def _yaw_of(q) -> float:
@@ -359,7 +394,6 @@ def _on_odom(msg):
 
     _last_rx_monotonic = time.monotonic()
     stamp = _stamp(msg)
-
     # FAST-LIO publishes T_world_imu in pos/orientation. Re-express it in the
     # initial base_link frame (gravity aligned, base at the origin at t=0):
     #
@@ -416,7 +450,7 @@ def _on_odom(msg):
 
     if _tf_broadcaster is not None:
         tf = TransformStamped()
-        tf.header.stamp = stamp
+        tf.header.stamp = _shift_stamp(stamp, _tf_stamp_tolerance_s)
         tf.header.frame_id = _odom_frame
         tf.child_frame_id = _base_frame
         tf.transform.translation.x = t_odom_base[0]

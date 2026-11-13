@@ -250,7 +250,11 @@ bt_navigator:
   ros__parameters:
     use_sim_time: false
     odom_topic: "__ROBONIX_ODOM_TOPIC__"
-    default_bt_xml_filename: "__ROBONIX_BT_XML__"
+    # nav2 1.1.x (Humble) reads default_nav_to_pose_bt_xml; the old
+    # default_bt_xml_filename key is silently ignored and the stock BT runs
+    # instead. Fixed here too so this fallback profile actually loads
+    # config/navigate.xml when the manifest switches back to it.
+    default_nav_to_pose_bt_xml: "__ROBONIX_BT_XML__"
     # The default 10 ms loop repeatedly exceeded its 100 Hz deadline in the
     # navigation logs. 20 Hz is sufficient for BT coordination; the local
     # controller continues running independently at 10 Hz.
