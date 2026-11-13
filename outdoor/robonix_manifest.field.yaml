@@ -15,7 +15,7 @@ primitive:
     - {name: video4, url: 'rtsp://10.21.33.103:8554/video4', primary: true}
     publish_hz: 5.0
     frame_timeout_s: 5.0
-    sentinel_timeout_s: 15.0
+    sentinel_timeout_s: 0.0  # Camera loss must not block outdoor planning.
 - name: lynx_chassis
   path: ../primitives/primitive-lynx_chassis
   config:
@@ -92,7 +92,7 @@ service:
       quality_confirmed: false
       yaw_std_deg: null
       course_heading: false
-      timeout_s: 0.5
+      timeout_s: 3.0
     output_topics:
       odom: /localization/odom
       pose: /localization/pose
@@ -104,9 +104,10 @@ service:
     worker_python: ${OUTDOOR_DEPLOY_ROOT}/.venv/bin/python
     require_map_reference: true
     estimator_mode: eskf
+    sensor_timeout_s: 3.0
     fusion:
       stationary_s: 5.0
-      history_s: 2.0
+      history_s: 3.0
       imu_xyz_m:
       - 0.0
       - 0.0
@@ -131,6 +132,7 @@ service:
       profile: annotate
     web_host: 127.0.0.1
     web_port: 50108
+    camera_battery_port: 8080
     web_viewer: 'off'
     map_providers:
       outdoor: outdoor_mapping
@@ -186,10 +188,18 @@ service:
       require_chassis_ready: true
       footprint_radius_m: 0.6
       cloud_min_height_m: -0.3
-      cloud_max_height_m: 0.3
+      cloud_max_height_m: 0.7
       scan_range_min_m: 0.5
       max_speed_mps: 0.4
+      stopped_linear_mps: 0.10
+      stopped_angular_rps: 0.06
+      stop_hold_s: 1.0
+      navigation_recovery_timeout_s: 15.0
+      pose_timeout_s: 3.0
+      localization_timeout_s: 3.0
+      transform_tolerance_s: 3.0
       fixed_arrival_m: 3.0
       float_arrival_m: 3.0
-      gait_switch_timeout_s: 10.0
+      gait_switch_timeout_s: 5.0
+      gait_prepare_timeout_s: 15.0
     worker_python: ${OUTDOOR_DEPLOY_ROOT}/.venv/bin/python

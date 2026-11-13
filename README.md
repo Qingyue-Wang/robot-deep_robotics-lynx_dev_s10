@@ -3,6 +3,8 @@
 山猫整机部署仓库：选择原语、服务和现场参数，由 Robonix 负责启动与退出。
 定位、建图、导航算法保留在独立 service，设备协议保留在 primitive。
 
+执行现场导航前先读 [AGENTS.md](AGENTS.md)，尤其是底盘导航模式的准备方法。
+
 | 入口 | 用途 |
 |---|---|
 | `robonix_manifest.yaml`、`robonix_manifest.nx.yaml` | 原有雷达地图导航及设备组合，具体配置按机器选择 |

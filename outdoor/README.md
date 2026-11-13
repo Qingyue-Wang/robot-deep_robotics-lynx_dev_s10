@@ -19,7 +19,10 @@ flock -n run/boot.lock rbnx boot -f robonix_manifest.yaml --no-update-check -v
 
 两份清单均启动山猫前摄像头（video4），Scene 的 `/cam` 直接显示原语画面，
 不依赖 `tools/camera_view` 网页。需安装 `ffmpeg`，Python 环境需有 NumPy 和 Pillow。
+相机断流时后台继续重连，不阻止定位、地图和 Scene 启动。
 独立工具网页仍可用于切换前后左右相机。
+Scene 电量显示复用独立工具的电量服务（`camera_battery_port: 8080`），
+需启动 `lynx-camera.service`；每 5 秒刷新，断开或过期时会提示。
 
 本体通信在 domain 0，室外程序在 domain 80。不使用本体 `/ODOM`。
 启动不自动站起或发目标；航向质量尚未确认，动态精度与真实楼梯待现场验收。
