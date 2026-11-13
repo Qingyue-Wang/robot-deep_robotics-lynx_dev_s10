@@ -1,0 +1,13 @@
+[Unit]
+Description=Enable VBAT out power (external discharge)
+# 装在狗本体板 10.21.33.103 上：开机把 /sys/class/power/vbat_out_power/power_on 置 1。
+# 该属性读会 EIO，状态看同目录的 status（off/on）。
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo 1 > /sys/class/power/vbat_out_power/power_on'
+
+[Install]
+WantedBy=multi-user.target
