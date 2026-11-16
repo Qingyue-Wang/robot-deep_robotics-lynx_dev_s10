@@ -99,6 +99,9 @@ system:
       api_key: ${VLM_API_KEY}
       model: ${VLM_MODEL}
       api_format: openai
+      # DeepSeek 不返回模型上下文元数据（pilot 日志 context_window_source=unavailable），
+      # 不显式给窗口就不会启用自动压缩。deepseek-chat 实际窗口 128k，这里留出余量。
+      context_window_tokens: 96000
   liaison: {listen: 0.0.0.0:50081, log: info}
   scene:
     log: info
@@ -441,7 +444,7 @@ service:
       # 调用方不给 bbox 时服务自己调 VLM 检测（凭据由 start.sh 从 .env 导出）。
       vlm_base_url: ${VLM_BASE_URL}
       vlm_api_key: ${VLM_API_KEY}
-      vlm_model: ${VLM_MODEL}
+      vlm_model: ${VLM_MODEL_VISION}
       vlm_timeout_s: 120.0
       frame_stale_s: 2.0
       locate_timeout_s: 120.0
