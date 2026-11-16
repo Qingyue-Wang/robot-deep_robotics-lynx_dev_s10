@@ -277,7 +277,7 @@ primitive:
       # 技能走 ROS joint_command，臂没使能就不动；台架实测 auto_enable=true 可用。
       auto_enable: true
       gripper_exist: true
-      gripper_val_mutiple: 2
+      gripper_val_mutiple: 1  # 2026-11-16: 原来 2 会把 80 mm 的开口命令放大成 160 mm（再被夹到 100 mm），ros2 后端的 joint_command 单位是米
       # 夹爪 SDK 默认把行程钳在 70 mm（piper_param_manager 的 gripper_range），
       # 但本机上位机/机械限位是 100 mm；原语里关掉 SDK 钳位、用这个值做软限位。
       gripper_stroke_m: 0.10
