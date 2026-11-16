@@ -34,7 +34,7 @@
   - 目标四元数只写「随便一个合法值」（例如 `w=1.0, z=0`），朝向交给之后的
     `chassis_move rotate_deg` 校正。
 - **每次 `nav2.navigation_navigate` 返回 SUCCEEDED 后都要核对朝向**：
-  1. `mapping.map_get_pose` 读当前位姿（拿到 yaw，单位通常是弧度）；
+  1. `mapping.map_get_pose` 读当前位姿（返回 `{"x","y","theta"}`，`theta` 是弧度）；
   2. 与目标朝向比较（差值取最短角，折到 ±180°）；
   3. `|差值| > 5°` 就调 `chassis_move` 的 `{"command": {"rotate_deg": Δ}}` 转正
      （正数逆时针/左转，负数顺时针/右转，闭环 ±3°）；
