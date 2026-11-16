@@ -134,6 +134,12 @@ primitive:
       rotate_tolerance_deg: 3.0
       posture_wait_s: 8.0
       nav_gait: 12290   # 0x3002 平地敏捷步态, recommended for navigation
+      # 导航模式自愈：栈重启 / 手动示教 / 软急停之后底盘会回到 待机(0)（腿收着
+      # 躺在地上，/MOTION_INFO height≈0.07 m）。此时 /NAV_CMD 完全不驱动轮子，
+      # Nav2 只会报 "Failed to make progress" 然后把目标取消，看不出真因。
+      # true = twist_in 发现 state != 17 时自动 stand(1) → rl(17) → 导航步态。
+      # 机器人在桌子/柜子底下等不便站起的场合改成 false，由操作者先 posture。
+      auto_nav_mode: true
       # 使用模式切换 over the 本体监控协议. 实测本机不通：30003 是 TLS1.3 + mTLS
       # （发心跳回 "certificate required"），30004 明文 UDP 无任何应答。没有客户端
       # 证书就读不到也设不了 使用模式，所以原语把它当**尽力而为**的检查：失败只告警，
