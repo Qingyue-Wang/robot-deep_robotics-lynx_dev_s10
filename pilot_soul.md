@@ -31,7 +31,10 @@
   （2026-11-16 16:03 就发成 yaw 2.70 rad 而正文写 1.79 rad，机器人「导航成功」但朝向
   错了 55°）。导航只负责把车开到点：
   - 需要带朝向时，先把位置走到点，再用下面的「到点核对」步骤把 yaw 转正；
-  - 目标四元数只写「随便一个合法值」（例如 `w=1.0, z=0`），朝向交给之后的
+  - 导航目标的四元数写 `w=1.0, z=0`（= 单位四元数）。nav2 现在把单位四元数解释为
+    **「保持当前朝向，不要转向」**（服务端用派发瞬间的 TF 位姿补上 goal yaw，返回
+    detail 里会写 `orientation=identity → keep current heading …deg`），所以这次导航
+    既不会把车莫名拧到 yaw=0，也不负责把车转到你要的朝向——朝向一律靠之后的
     `chassis_move rotate_deg` 校正。
 - **每次 `nav2.navigation_navigate` 返回 SUCCEEDED 后都要核对朝向**：
   1. `mapping.map_get_pose` 读当前位姿（返回 `{"x","y","theta"}`，`theta` 是弧度）；
@@ -41,6 +44,12 @@
   4. 再 `map_get_pose` 复核一次，达标才报告「到达」。
   nav2 的返回 detail 现在也会附带 `yaw=…deg goal_yaw=…deg yaw_error=…deg`，
   如果出现「目标朝向没达到」字样，就按上面第 3 步校正，不要直接宣布任务完成。
+- **朝向没转正之前，禁止进入「趴下 / 观察 / 抓取」**。用户给出的目标位姿里带 yaw
+  （例如「前往 pose=(1.86, 3.99, 1.81)」里的 1.81 是**弧度**）时，先把它换成角度
+  （1.81 rad ≈ 103.7°），导航到点后按上面 1–4 步转到该角度，**再**调
+  `chassis_posture("sit")` / `depth_grasp.observe` / `pick_pick`。2026-11-16 16:42
+  那趟就是漏了这一步：导航 detail 已经写着 `yaw_error=+15.2deg`（车的朝向和用户
+  要的 103.7° 差了 88°），直接趴下抓取 → 腕上相机根本看不到萝卜。
 - **后退/前进用 `chassis_move` 的 `forward_m`（现在是 odom 闭环）**：它按实测位移
   停在 ±2 cm 内，被挡住（1 s 内位移 < 1 cm）会返回
   `{"status":"error","error":"blocked: …"}` 而不是照走满时长。看到这个 error 就先
