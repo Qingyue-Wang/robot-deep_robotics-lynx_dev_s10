@@ -319,12 +319,12 @@ velocity_smoother:
     #
     # Below ~0.22 rad/s the robot does not rotate — it just keeps stepping
     # (那就是"一边向前走一边抬腿") and DWB keeps re-issuing the same futile
-    # correction for the whole leg. 0.12 let that band through; 0.22 zeros it,
-    # so the wheels roll dead straight and real corrections come from the
-    # rotation shim above (0.45 rad/s, 76 % response) as a deliberate pivot.
-    # Cost: small path offsets are no longer chased at all during a straight
-    # leg (0.40 m max in that run, recovering to 0.10 m by the goal).
-    deadband_velocity: [0.02, 0.0, 0.22]
+    # correction for the whole leg. 0.12 let that band through; 0.22 zeros it.
+    # 2026-11-16: 现场仍然反馈「走几步就微调、频繁抬腿」，实测那一趟有 35% 的
+    # 指令 |ω| ≥ 0.22（全部落在 0.22–0.35 这段 63% 响应的区间，转得慢还一直
+    # 抬腿）。再抬到 0.35：只有真正的纠偏才抬腿，且抬脚就是 76%+ 响应的有效
+    # 转向。代价是直线段内不再追小偏差，宁可可允许走偏一点也要少抬腿。
+    deadband_velocity: [0.02, 0.0, 0.35]
     # Fail to zero promptly if the controller stops publishing.  This is not a
     # substitute for a geometric collision monitor, but prevents stale motion.
     velocity_timeout: 0.5
