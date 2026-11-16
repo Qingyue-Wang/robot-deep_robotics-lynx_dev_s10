@@ -135,15 +135,18 @@ controller_server:
     # turn happens at the start of each path / replan; a corner in the middle of
     # one Theta* path is still tracked by DWB. Keep the path itself straight
     # (Theta* above) rather than expecting the shim to fix a curved plan.
-    # DWB parameters
     FollowPath:
-      plugin: "nav2_rotation_shim_controller::RotationShimController"
-      primary_controller: "dwb_core::DWBLocalPlanner"
-      angular_dist_threshold: 0.30
-      angular_disengage_threshold: 0.12
-      forward_sampling_distance: 0.45
-      rotate_to_heading_angular_vel: 0.45
-      max_angular_accel: 1.0
+      # 【2026-11-16 改回「直线优先」】原先这里是 RotationShimController
+      # （先转后直）：每收到一条新路径就比对航向，偏差 >0.30 rad 就先原地转。
+      # 这台是轮足底盘，原地转身必须把轮子抱死、改抬腿步进，于是现场表现成
+      # 「走几步就轮足抱死、切成机器狗模式」。改回 DWB 直连 = 边转边走：转向
+      # 靠左右轮差速，轮子一直滚。
+      # 想恢复先转后直：把下面 plugin 换回
+      #   "nav2_rotation_shim_controller::RotationShimController" 并打开
+      #   primary_controller / angular_dist_threshold(0.30) /
+      #   angular_disengage_threshold(0.12) / forward_sampling_distance(0.45) /
+      #   rotate_to_heading_angular_vel(0.45) / max_angular_accel(1.0) 这几行。
+      plugin: "dwb_core::DWBLocalPlanner"
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
