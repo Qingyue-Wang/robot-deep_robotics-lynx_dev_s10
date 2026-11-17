@@ -45,6 +45,14 @@ command -v rbnx >/dev/null 2>&1 || {
 # packages orphaned by an earlier partial bring-up).
 "$DEPLOY_DIR/stop.sh"
 
+# A failed boot can leave ROS children hung (alive, publishing nothing) and
+# orphaned /dev/shm/fastrtps_* segments behind; stop.sh only matches by cwd and
+# misses them. Without this, the next boot hangs 30 s per provider and reports
+# "no Image / no JointState within 30.0s" — see scripts/preboot_clean.sh.
+if [[ -x "$DEPLOY_DIR/scripts/preboot_clean.sh" ]]; then
+  "$DEPLOY_DIR/scripts/preboot_clean.sh" || true
+fi
+
 stack_started=0
 
 cleanup() {

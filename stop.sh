@@ -30,12 +30,16 @@ command -v rbnx >/dev/null 2>&1 || {
 CACHE_ROOT="$DEPLOY_DIR/rbnx-boot/cache"
 
 collect_deployment_pids() {
-  local pid cwd
+  local pid cwd cmd
   while read -r pid; do
     [[ "$pid" =~ ^[0-9]+$ ]] || continue
     [[ "$pid" != "$$" && "$pid" != "$PPID" ]] || continue
     cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
-    if [[ "$cwd" == "$CACHE_ROOT" || "$cwd" == "$CACHE_ROOT/"* ]]; then
+    # Match by cwd *or* by cmdline: a hung ROS child often keeps cwd at $HOME
+    # while its command line still points into this deployment's rbnx-boot.
+    cmd="$( { tr '\0' ' ' < "/proc/$pid/cmdline"; } 2>/dev/null || true)"
+    if [[ "$cwd" == "$CACHE_ROOT" || "$cwd" == "$CACHE_ROOT/"* ]] ||
+       [[ "$cmd" == *"$CACHE_ROOT"* ]]; then
       printf '%s\n' "$pid"
     fi
   done < <(ps -u "$(id -u)" -o pid=)
