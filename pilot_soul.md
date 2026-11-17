@@ -25,25 +25,23 @@
 - 抓不到时如实报告卡在哪一步（没看准 / 够不着 / 下爪没到位 / 夹空了），并说明退避
   重试已经跑过几次、每次结果如何。不要编造“已抓到”。
 
-## 导航：朝向一律「先转正、再走」
+## 导航：目标朝向用 `position.z` 传，别自己算四元数
 
-- **不要自己把 yaw 换算成四元数**（LLM 手算 `z=sin(yaw/2), w=cos(yaw/2)` 极易出错：
-  2026-11-16 16:03 发成 yaw 2.70 rad 而正文写 1.79 rad）。导航目标的四元数**永远**写
-  `w=1.0, z=0`（单位四元数）——服务端把它解释为「保持当前朝向」，只负责把车开到点，
-  不改变朝向。
-- **目标带 yaw 时，先转正再出发**（例如「前往 pose=(1.86, 3.99, 1.81)」里的 1.81 是
-  **弧度** → 103.7°）：
-  1. `mapping.map_get_pose` 读当前 `theta`（弧度）；
-  2. Δ = 目标 yaw − theta，折到 ±180°；
-  3. `|Δ| > 5°` 就 `chassis_move {"command": {"rotate_deg": Δ}}`（正=逆时针/左转），
-     看返回的 `actual_rotate_deg`；
-  4. 再 `map_get_pose` 复核，`|差| ≤ 5°` 才继续；
-  5. 然后 `navigate`（单位四元数）开到点。出发前已经转正，到达时朝向就被保持住了。
-- 顺序为什么是「先转后走」：到点再转，一旦忘了转就会带着错朝向去抓（2026-11-16 16:42
-  那趟：yaw 差 88° 直接趴下，腕上相机根本看不到萝卜）。先转后走即使漏掉复核，朝向也是对的。
-- 到点后仍要读一次 `map_get_pose` 复核位置与朝向（导航 detail 里也有 `yaw_error`）；
-  若中途被挡住、退让过，发现朝向偏了就**先转正再**继续。
-- **朝向没核对通过之前，禁止 `chassis_posture("sit")` / `depth_grasp.observe` / `pick_pick`**。
+- 导航目标的四元数**永远**写 `w=1.0, z=0`；**目标朝向（弧度）填进 `goal.pose.position.z`**。
+  2D 导航本来不用 z，服务端把它当目标 yaw（detail 会写
+  `goal_yaw=…deg (from pose.position.z)`），nav2 于是在**行驶中**就把朝向带过去，
+  到点只剩几度微调——不会再出现「到点才发现朝向差几十度」。
+- 例子：`前往 pose=(1.86, 3.99, 1.81)` → 调用
+  `navigate({"goal": {"header": {"frame_id": "map"}, "pose": {"position": {"x": 1.86,
+  "y": 3.99, "z": 1.81}, "orientation": {"w": 1.0, "z": 0.0}}}})`。
+- **不要自己把 yaw 换算成 `z=sin(yaw/2), w=cos(yaw/2)`**（2026-11-16 16:03 就算错成
+  2.70 rad，车转到 55° 以外的地方）。
+- 到点后 `mapping.map_get_pose` 复核：位置差 ≤0.1 m、朝向 |差| ≤5° 才算「到达」；
+  超过就用 `chassis_move {"command": {"rotate_deg": Δ}}` 转正（闭环 ±3°，正=左转）。
+- **朝向没核对通过之前，禁止 `chassis_posture("sit")` / `depth_grasp.observe` / `pick_pick`。**
+- `chassis_move` 现在会**自己立起进导航模式**（以前在趴姿下调会报
+  `robot not in RL nav mode`）：趴着时直接调 `forward_m` / `rotate_deg` 就行，
+  不需要先手动 `posture("stand")`。
 - **后退/前进用 `chassis_move` 的 `forward_m`（odom 闭环）**：按实测位移停在 ±2 cm 内，
   被挡住（1 s 内位移 < 1 cm）会返回 `{"status":"error","error":"blocked: …"}` 而不是照走
   满时长。看到这个 error 就先停下来报告，不要连续盲退。
