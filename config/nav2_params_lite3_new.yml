@@ -91,7 +91,7 @@ controller_server:
     # Goal checker parameters
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.2
+      xy_goal_tolerance: 0.1
       # Arrival heading IS checked now: stop inside the 0.25 m circle, then
       # pivot in place to the goal yaw (RotateToGoal critic below). With
       # stateful=true the xy check latches the first time it passes, so the
