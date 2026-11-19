@@ -22,6 +22,14 @@ lidar:
       msop_port: 6691
       difop_port: 7781
       imu_port: 6681
+      # Per-socket UDP receive buffer (MSOP/DIFOP/IMU). The driver raises
+      # anything below 4 MB to 4 MB, but the kernel caps SO_RCVBUF at
+      # net.core.rmem_max; with the stock ~208 KB it clamped to 426 KB and
+      # MSOP bursts overflowed the socket queue (Udp RcvbufErrors), which
+      # surfaces as multi-second /Odometry gaps. Raise rmem_max first:
+      #   sudo ./scripts/set_udp_buffer.sh
+      # then this 8 MB request is honoured (kernel doubles it to ~16 MB).
+      socket_recv_buf: 8388608
       # The S10's Airy sends MSOP/DIFOP/IMU to this multicast group.
       # host_address must be the Orin's eno1 IP so IP_ADD_MEMBERSHIP
       # joins on the right interface (0.0.0.0 would use the default route).

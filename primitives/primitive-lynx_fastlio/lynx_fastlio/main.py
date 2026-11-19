@@ -111,6 +111,14 @@ _max_yaw_rate_rps = 4.0
 _last_good: tuple[float, float, float, float, float] | None = None
 _diverged = False
 
+# FAST-LIO publishes pose only (twist is always zero), but Nav2's DWB and the
+# rotation shim consume /odom.twist (linear.x / angular.z). Derive it from
+# consecutive *published* poses. A gap longer than this (a FAST-LIO stall or a
+# suppressed divergence sample) is not a usable rate, so that sample gets a
+# zero twist rather than a spike across the gap.
+_max_twist_dt_s = 0.5
+_last_pub = None  # (stamp_s, t_odom_base, R_odom_base)
+
 
 # ── small 3-D math helpers (kept dependency-free) ───────────────────────────
 
@@ -143,6 +151,24 @@ def _mat_vec(a, v):
 
 def _transpose(a):
     return tuple(tuple(a[j][i] for j in range(3)) for i in range(3))
+
+
+def _rotvec_from_mat(r) -> tuple[float, float, float]:
+    """Rotation vector (axis * angle) of a rotation matrix.
+
+    Only the small-angle branch is needed here: the divergence guard caps an
+    accepted sample at _max_yaw_rate_rps * dt, so theta stays well below pi.
+    """
+    cos_theta = max(-1.0, min(1.0, (r[0][0] + r[1][1] + r[2][2] - 1.0) * 0.5))
+    theta = math.acos(cos_theta)
+    if theta < 1e-6:
+        return (0.0, 0.0, 0.0)
+    scale = theta / (2.0 * math.sin(theta))
+    return (
+        scale * (r[2][1] - r[1][2]),
+        scale * (r[0][2] - r[2][0]),
+        scale * (r[1][0] - r[0][1]),
+    )
 
 
 def _quat_to_mat(q) -> tuple[tuple[float, float, float], ...]:
@@ -388,7 +414,7 @@ def _is_impossible(stamp_s: float, pos, yaw: float) -> bool:
 
 
 def _on_odom(msg):
-    global _published, _last_rx_monotonic
+    global _published, _last_rx_monotonic, _last_pub
     if _odom_pub is None:
         return
 
@@ -444,8 +470,31 @@ def _on_odom(msg):
     out.pose.pose.orientation.y = q_base[1]
     out.pose.pose.orientation.z = q_base[2]
     out.pose.pose.orientation.w = q_base[3]
-    # FAST-LIO leaves twist at zero; copy whatever it did publish.
-    out.twist = msg.twist
+    # Derive the twist from consecutive published poses. nav_msgs/Odometry
+    # expresses twist in child_frame_id (base_link), which is what Nav2's
+    # OdomSubscriber, DWB (start velocity) and RotationShimController
+    # (closed_loop) consume. FAST-LIO itself leaves msg.twist at zero.
+    if _last_pub is not None:
+        last_stamp, last_t, last_r = _last_pub
+        dt = stamp_s - last_stamp
+        if 1e-3 < dt <= _max_twist_dt_s:
+            v_odom = tuple(
+                (t_odom_base[i] - last_t[i]) / dt for i in range(3)
+            )
+            v_base = _mat_vec(_transpose(R_odom_base), v_odom)
+            omega_base = tuple(
+                w / dt
+                for w in _rotvec_from_mat(
+                    _mat_mul(_transpose(last_r), R_odom_base)
+                )
+            )
+            out.twist.twist.linear.x = v_base[0]
+            out.twist.twist.linear.y = v_base[1]
+            out.twist.twist.linear.z = v_base[2]
+            out.twist.twist.angular.x = omega_base[0]
+            out.twist.twist.angular.y = omega_base[1]
+            out.twist.twist.angular.z = omega_base[2]
+    _last_pub = (stamp_s, t_odom_base, R_odom_base)
     _odom_pub.publish(out)
 
     if _tf_broadcaster is not None:

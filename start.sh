@@ -15,6 +15,16 @@ if [[ -f "$DEPLOY_DIR/.env" ]]; then
   set +a
 fi
 
+# Fast DDS transport profile: the front Airy PointCloud2 is ~1.08 MB per frame
+# (41.7k × 26 B at 10 Hz). The default 512 KB SHM segment cannot hold it, so
+# every cloud fragmented over UDP and each subscriber dropped ~25% of frames
+# (measured 7.7 Hz instead of 10 Hz). config/fastdds_shm.xml raises the SHM
+# segment to 16 MB and keeps UDPv4 for the robot's native DDS domain. All
+# processes started below inherit this through rbnx/soma. .env can override.
+if [[ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" && -f "$DEPLOY_DIR/config/fastdds_shm.xml" ]]; then
+  export FASTRTPS_DEFAULT_PROFILES_FILE="$DEPLOY_DIR/config/fastdds_shm.xml"
+fi
+
 # Pilot 的部署级行为规则：抓取默认趴着、不要站起来（见 pilot_soul.md）。
 # rbnx boot 会把它传给 robonix-pilot；pilot 在每个任务回合开始时读取。
 # .env 里可以覆盖，没设时回落到 ~/.robonix/SOUL.md。
@@ -59,14 +69,6 @@ cleanup() {
   local status=$?
   trap - EXIT INT TERM
 
-  # Stop the odom guard before the stack (it is a plain ROS node, not part of
-  # `rbnx boot`, so it does not participate in rbnx's own teardown).
-  if [[ -n "${ODOM_GUARD_PID:-}" ]]; then
-    kill "$ODOM_GUARD_PID" 2>/dev/null || true
-    wait "$ODOM_GUARD_PID" 2>/dev/null || true
-  fi
-  rm -f "${ODOM_GUARD_PIDFILE:-$LOG_DIR/odom_guard.pid}"
-
   # `rbnx boot` handles Ctrl-C itself: it tears the children down and removes
   # state.json. Calling `rbnx shutdown` again then just prints
   # "no boot state ... has `rbnx boot` been run from this manifest?".
@@ -82,52 +84,14 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# ── odom safety gate ─────────────────────────────────────────────────────
-# The nav2 service publishes its final velocity on /cmd_vel_service (see
-# `velocity_output_topic` in the manifest); this node forwards it to /cmd_vel
-# only while /odom is healthy, and stops the base + cancels the navigation
-# goal when odom goes stale or jumps. Runs on the stack's ROS domain (read
-# from the manifest). Failure is logged in logs/odom_guard.log; navigation
-# then gets no velocity at all, which is fail-safe.
-ODOM_GUARD_PIDFILE="$LOG_DIR/odom_guard.pid"
-if [[ -f "$DEPLOY_DIR/config/odom_guard.yaml" ]]; then
-  # A guard left over from a crashed previous run would keep zeroing /cmd_vel.
-  if [[ -f "$ODOM_GUARD_PIDFILE" ]]; then
-    stale_pid="$(cat "$ODOM_GUARD_PIDFILE" 2>/dev/null || true)"
-    if [[ -n "$stale_pid" ]] && kill -0 "$stale_pid" 2>/dev/null; then
-      echo "[start] killing stale odom guard pid=$stale_pid"
-      kill "$stale_pid" 2>/dev/null || true
-    fi
-    rm -f "$ODOM_GUARD_PIDFILE"
-  fi
+stack_started=1
 
-  # Only deployments that run nav2 need the gate: without nav2 nothing publishes
-  # /cmd_vel_service, and in a chassis-only deployment the always-on zero pump
-  # would fight manual /cmd_vel driving.
-  if python3 - "$MANIFEST" <<'PY'
-import sys
-import yaml
-try:
-    data = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    raise SystemExit(1)
-services = data.get("service") or []
-raise SystemExit(0 if any(s.get("name") == "nav2" for s in services) else 1)
-PY
-  then
-    python3 "$DEPLOY_DIR/scripts/odom_guard.py" \
-      --manifest "$MANIFEST" \
-      --config "$DEPLOY_DIR/config/odom_guard.yaml" \
-      >>"$LOG_DIR/odom_guard.log" 2>&1 &
-    ODOM_GUARD_PID=$!
-    echo "$ODOM_GUARD_PID" > "$ODOM_GUARD_PIDFILE"
-    echo "[start] odom guard pid=$ODOM_GUARD_PID (log: $LOG_DIR/odom_guard.log)"
-  else
-    echo "[start] manifest has no nav2 service; odom guard not started"
-  fi
-else
-  echo "[start] WARNING: config/odom_guard.yaml missing; odom guard disabled" >&2
+# `rbnx boot` 会在构建标记（<pkg>/rbnx-build/.rbnx-built）比 codegen 输入旧时，
+# inline 重跑一遍 codegen（日志 `⚠ <pkg>: not built — building inline`）。
+# 用 ROBONIX_SKIP_INLINE_BUILD=1 可以跳过这一步（把标记刷成当前时间）。
+if [[ "${ROBONIX_SKIP_INLINE_BUILD:-0}" == "1" && -x "$DEPLOY_DIR/scripts/build_status.sh" ]]; then
+  echo "[boot] ROBONIX_SKIP_INLINE_BUILD=1：跳过 inline codegen（已刷新构建标记）"
+  bash "$DEPLOY_DIR/scripts/build_status.sh" --touch | sed -n '2,99p'
 fi
 
-stack_started=1
 rbnx boot --no-update-check -f "$MANIFEST" "$@"

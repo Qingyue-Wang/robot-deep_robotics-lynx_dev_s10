@@ -79,19 +79,18 @@ controller_server:
 
     # Progress checker parameters
     progress_checker:
-      plugin: "nav2_controller::SimpleProgressChecker"
+      # Stock SimpleProgressChecker only measures TRANSLATION (hypot of dx/dy);
+      # the final in-place pivot therefore looks like "no progress" and can be
+      # aborted with "Failed to make progress". This terminal plugin counts
+      # either translation or yaw change as progress.
+      plugin: "robonix_nav2_terminal::RotationAwareProgressChecker"
       required_movement_radius: 0.1
-      # This checker only measures TRANSLATION (hypot of dx/dy). The final
-      # in-place pivot to the goal yaw moves the base by ~0, so a worst-case
-      # pi-rad turn at the measured ~0.32 rad/s response (see deadband note at
-      # velocity_smoother) needs ~10 s and would trip a 10 s allowance right
-      # as the robot is finishing. 20 s still catches a controller that only
-      # steps in place at a doorway.
+      required_rotation_angle: 0.2
       movement_time_allowance: 20.0
     # Goal checker parameters
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.1
+      xy_goal_tolerance: 0.2
       # Arrival heading IS checked now: stop inside the 0.25 m circle, then
       # pivot in place to the goal yaw (RotateToGoal critic below). With
       # stateful=true the xy check latches the first time it passes, so the
@@ -136,17 +135,27 @@ controller_server:
     # one Theta* path is still tracked by DWB. Keep the path itself straight
     # (Theta* above) rather than expecting the shim to fix a curved plan.
     FollowPath:
-      # 【2026-11-16 改回「直线优先」】原先这里是 RotationShimController
-      # （先转后直）：每收到一条新路径就比对航向，偏差 >0.30 rad 就先原地转。
-      # 这台是轮足底盘，原地转身必须把轮子抱死、改抬腿步进，于是现场表现成
-      # 「走几步就轮足抱死、切成机器狗模式」。改回 DWB 直连 = 边转边走：转向
-      # 靠左右轮差速，轮子一直滚。
-      # 想恢复先转后直：把下面 plugin 换回
-      #   "nav2_rotation_shim_controller::RotationShimController" 并打开
-      #   primary_controller / angular_dist_threshold(0.30) /
-      #   angular_disengage_threshold(0.12) / forward_sampling_distance(0.45) /
-      #   rotate_to_heading_angular_vel(0.45) / max_angular_accel(1.0) 这几行。
-      plugin: "dwb_core::DWBLocalPlanner"
+      # 【2026-11-18 恢复「先转后直」】2026-11-16 曾因轮足原地转身时
+      # 「轮子抱死/切成机器狗模式」改回 DWB 直连（边转边走）。现按 11-13
+      # baseline（git 00eeddc^）恢复 RotationShimController：每收到一条新路径
+      # 先比对航向，|误差| > angular_dist_threshold 就先原地转到路径方向，
+      # 再交给 DWB 走直线。DWB 的参数直接写在下面（primary_controller 按类名加载）。
+      # 注意：原地转要求 使用模式=导航(1)、步态 0x3002；否则 /NAV_CMD 的纯 yaw
+      # 不会驱动轮子。rotate_to_heading_angular_vel 0.45 高于平滑器 0.35 死区。
+      plugin: "nav2_rotation_shim_controller::RotationShimController"
+      primary_controller: "dwb_core::DWBLocalPlanner"
+      angular_dist_threshold: 0.30
+      angular_disengage_threshold: 0.12
+      forward_sampling_distance: 0.45
+      rotate_to_heading_angular_vel: 0.45
+      max_angular_accel: 1.0
+      # 必须开环：FAST-LIO 的 /odom twist 恒为 0（只有 pose，没有 twist）。
+      # closed_loop=true（默认）时 shim 用 measured angular.z 做加速度限幅，
+      # 指令被夹在 max_angular_accel*dt = 1.0*0.1 = 0.1 rad/s，低于
+      # velocity_smoother 的 0.35 死区 → 原地转永远起不来，且 shim 会一直
+      # 停在 rotation 模式（误差降不到 disengage 阈值），整条导航一步不动。
+      # 开环后 current 用上一次的指令值，0.1→0.2→…→0.45 ramp 上去即可穿透死区。
+      closed_loop: false
       debug_trajectory_details: True
       min_vel_x: 0.0
       min_vel_y: 0.0
@@ -216,7 +225,7 @@ controller_server:
       # libdwb_critics (strings: .xy_goal_tolerance, .slowing_factor,
       # .lookahead_time); this build does NOT declare a yaw tolerance key, the
       # arrival yaw comes from general_goal_checker above.
-      RotateToGoal.xy_goal_tolerance: 0.25
+      RotateToGoal.xy_goal_tolerance: 0.2
       # scale is the generic DWB critic weight (raw score x scale, lower is
       # better). 32 is what Nav2's own example params use (nav2_bringup
       # nav2_params.yaml) so that inside the window this critic outweighs

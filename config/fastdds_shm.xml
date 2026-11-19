@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  Fast DDS transport profile for this deployment.
+
+  Why: the front Airy PointCloud2 is ~1.08 MB per frame (41.7k points × 26 B)
+  at 10 Hz. Fast DDS's default SHM segment is 512 KB, so every cloud exceeds
+  the segment and falls back to UDP fragmentation (~770 datagrams/frame).
+  With best-effort QoS a single lost fragment discards the whole sample: each
+  subscriber was dropping ~25% of frames (cloud consumer measured 7.7 Hz
+  instead of 10 Hz) and the domain-43 DDS UDP sockets accumulated tens of
+  thousands of RcvbufErrors.
+
+  Raising segment_size keeps the full cloud in shared memory. UDPv4 is kept
+  as a second transport because the chassis bridge talks to the robot's
+  native DDS domain across the network, where SHM does not exist.
+
+  Applied by start.sh via FASTRTPS_DEFAULT_PROFILES_FILE; all processes
+  started below it (atlas, soma, primitives, services) inherit it.
+  Restart the stack after changing this file.
+-->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>rbnx_shm</transport_id>
+      <type>SHM</type>
+      <!-- Power of two; must exceed the largest sample plus DDS overhead. -->
+      <segment_size>16777216</segment_size>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>rbnx_udp</transport_id>
+      <type>UDPv4</type>
+    </transport_descriptor>
+  </transport_descriptors>
+
+  <participant profile_name="rbnx_default" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>rbnx_shm</transport_id>
+        <transport_id>rbnx_udp</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>

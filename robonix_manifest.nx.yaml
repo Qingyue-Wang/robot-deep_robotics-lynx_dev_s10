@@ -368,11 +368,11 @@ service:
     config:
 
       # 【旧模式】固定 5Hz + 边转边走（已注释，随时切回）
-      params_file: config/nav2_params_lite3.yml
-      bt_xml_file: config/navigate.xml
+      #params_file: config/nav2_params_lite3.yml
+      #bt_xml_file: config/navigate.xml
       # 【新模式】事件驱动 + 先转后直
-      # params_file: config/nav2_params_lite3_new.yml
-      # bt_xml_file: config/navigate_new.xml
+      params_file: config/nav2_params_lite3_new.yml
+      bt_xml_file: config/navigate_new.xml
 
       use_sim_time: false
       action_wait_s: 90.0
@@ -380,14 +380,15 @@ service:
       # 2026-11-16 10:01 实测：离目标 0.20 m、还差约 23° 偏航时被
       # "terminal yaw made no progress" 取消（RL 步态原地转身慢，3 s 内转不够
       # 0.04 rad）。放宽到 0.25 m / 8 s，超时兜底 20 s。
-      guard_terminal_xy_m: 0.25
+      guard_terminal_xy_m: 0.2
       guard_terminal_timeout_s: 20.0
       guard_no_progress_s: 8.0
-      # Navigation's final velocity goes to /cmd_vel_service, NOT directly to
-      # /cmd_vel: scripts/odom_guard.py (started by start.sh) gates it and is
-      # the only publisher on /cmd_vel (chassis twist_in). While /odom is
-      # stale/jumping the gate zeroes the base and cancels the nav goal.
-      velocity_output_topic: /cmd_vel_service
+      # Navigation's final velocity goes straight to /cmd_vel (chassis twist_in).
+      # The former /cmd_vel_service detour existed only for
+      # scripts/odom_guard.py, which start.sh no longer launches. With this set
+      # to anything but /cmd_vel, nothing would forward nav2's velocity and the
+      # robot would silently never move.
+      velocity_output_topic: /cmd_vel
       dynamic_speed:
         # Match the effective DWB and velocity-smoother planar ceiling.
         # The 75% startup limit is 0.2625 m/s.

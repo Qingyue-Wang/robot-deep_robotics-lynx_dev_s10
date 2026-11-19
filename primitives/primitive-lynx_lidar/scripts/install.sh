@@ -132,29 +132,71 @@ else:
     sys.exit("[lynx_lidar/install] CMakeLists: unexpected POINT_TYPE line")
 PY
 
-# 2) BEST_EFFORT point-cloud publisher: a RELIABLE 1 MB cloud blocks the driver
-#    thread under load (unbounded queue -> GBs of RSS -> 100 s stale stamps).
-python3 - "$SDK_DIR/src/source/source_pointcloud_ros.hpp" <<'PY'
+# 2) BEST_EFFORT publishers: clouds, IMU and raw packets are all sensor data.
+#    A RELIABLE publisher lets Fast DDS flow control throttle the driver thread
+#    for every reader as soon as one reader falls behind (measured: IMU
+#    196 Hz -> ~5 Hz; a RELIABLE ~1 MB cloud under load grows the queue into
+#    GBs and its stamps go seconds stale). Best effort drops samples instead
+#    of stalling the driver.
+python3 - "$SDK_DIR/src/source/source_pointcloud_ros.hpp" \
+          "$SDK_DIR/src/source/source_packet_ros.hpp" <<'PY'
 import pathlib, sys
-p = pathlib.Path(sys.argv[1])
-s = p.read_text()
-if "cloud_qos.best_effort()" in s:
-    print("[lynx_lidar/install] point-cloud publisher already BEST_EFFORT")
-    raise SystemExit(0)
-old = "  pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(ros_send_topic, ros_queue_length);"
-new = """  {
-    // Point clouds are sensor data: publish BEST_EFFORT so a slow consumer can
-    // drop frames instead of blocking this thread (a RELIABLE ~1 MB cloud under
-    // load stalls the driver, its queue grows into GBs and stamps go stale).
+
+patches = [
+    (
+        sys.argv[1],
+        "cloud_qos.best_effort()",
+        "  pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(ros_send_topic, ros_queue_length);",
+        """  {
+    // Point clouds are sensor data: BEST_EFFORT lets a slow consumer drop
+    // frames instead of blocking this thread via DDS flow control.
     rclcpp::QoS cloud_qos{rclcpp::KeepLast(ros_queue_length)};
     cloud_qos.best_effort();
     pub_ = node_ptr_->create_publisher<sensor_msgs::msg::PointCloud2>(
         ros_send_topic, cloud_qos);
-  }"""
-if old not in s:
-    sys.exit("[lynx_lidar/install] source_pointcloud_ros.hpp: unexpected publisher line")
-p.write_text(s.replace(old, new, 1))
-print("[lynx_lidar/install] point-cloud publisher -> BEST_EFFORT")
+  }""",
+        "point-cloud publisher",
+    ),
+    (
+        sys.argv[1],
+        "imu_qos.best_effort()",
+        "  imu_pub_ = node_ptr_->create_publisher<sensor_msgs::msg::Imu>(ros_send_imu_data_topic, 1000);",
+        """  {
+    // IMU is sensor data too: a RELIABLE 196 Hz writer is throttled to the
+    // slowest reader's callback rate, starving FAST-LIO and rtabmap.
+    rclcpp::QoS imu_qos{rclcpp::KeepLast(1000)};
+    imu_qos.best_effort();
+    imu_pub_ = node_ptr_->create_publisher<sensor_msgs::msg::Imu>(
+        ros_send_imu_data_topic, imu_qos);
+  }""",
+        "IMU publisher",
+    ),
+    (
+        sys.argv[2],
+        "packet_qos.best_effort()",
+        "  pkt_pub_ = node_ptr_->create_publisher<rslidar_msg::msg::RslidarPacket>(ros_send_topic, ros_queue_length);",
+        """  {
+    // Raw packets are sensor data as well; best effort for the same
+    // flow-control reason (unused unless send_packet_ros is enabled).
+    rclcpp::QoS packet_qos{rclcpp::KeepLast(ros_queue_length)};
+    packet_qos.best_effort();
+    pkt_pub_ = node_ptr_->create_publisher<rslidar_msg::msg::RslidarPacket>(
+        ros_send_topic, packet_qos);
+  }""",
+        "packet publisher",
+    ),
+]
+
+for path, marker, old, new, label in patches:
+    p = pathlib.Path(path)
+    s = p.read_text()
+    if marker in s:
+        print(f"[lynx_lidar/install] {label} already BEST_EFFORT")
+        continue
+    if old not in s:
+        sys.exit(f"[lynx_lidar/install] {label}: unexpected publisher line in {path}")
+    p.write_text(s.replace(old, new, 1))
+    print(f"[lynx_lidar/install] {label} -> BEST_EFFORT")
 PY
 
 # ── deployment config ───────────────────────────────────────────────────────
