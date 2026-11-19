@@ -4,6 +4,7 @@
 用法: python3 scripts/submit_task.py "<任务文本>" [超时秒数]
 """
 import sys
+import os
 import time
 
 sys.path.insert(0, "/tmp/pbgen")
@@ -17,7 +18,10 @@ TEXT = sys.argv[1] if len(sys.argv) > 1 else "抓萝卜"
 TIMEOUT = int(sys.argv[2]) if len(sys.argv) > 2 else 300
 
 stub = RobonixSystemLiaisonSubmitStub(grpc.insecure_channel("127.0.0.1:50081"))
-task = pilot_pb.Task(task_id=f"t{int(time.time())}", session_id="s1", source=1, text=TEXT)
+# session_id 默认随机：pilot 按 session 维护历史，固定 "s1" 会让它把上一轮的结论
+# 当成本轮已完成（实测 17:58 那轮 2.6 s 就回"已抓起来"，根本没动臂）。
+SESSION = os.environ.get("PILOT_SESSION") or f"s{int(time.time())}"
+task = pilot_pb.Task(task_id=f"t{int(time.time())}", session_id=SESSION, source=1, text=TEXT)
 
 t0 = time.time()
 try:

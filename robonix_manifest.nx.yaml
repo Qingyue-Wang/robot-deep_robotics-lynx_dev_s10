@@ -35,6 +35,12 @@ env:
   # 使“构建输入比 .rbnx-built 标记新”，于是每次 ./start.sh 都误判为
   # “not built — building inline”。设了这个变量后 codegen 目录保持只读。
   PYTHONDONTWRITEBYTECODE: "1"
+  # 抓取演练（dry-run）：现场没有物体时也能看完整条动作链（规划→悬停→下爪→
+  # 合爪→抬起→回位），夹爪里不会有东西。关掉：把下面三行删掉或把第一个设为 "0"。
+  ROBONIX_GRASP_DRY_RUN: "1"
+  # 虚拟方块：桌面 z（米）、尺寸 mm（长,宽,高）——顶面 = 桌面 + 高
+  ROBONIX_GRASP_DRY_RUN_SURFACE: "-0.0657"
+  ROBONIX_GRASP_DRY_RUN_SIZE: "40,40,30"
   # The S10 publishes its native ROS 2 topics (drdds) over the default RMW
   # (Fast DDS). Do NOT set RMW_IMPLEMENTATION here: rmw_zenoh_cpp (used by the
   # Lite3 deploy) would make the S10's topics invisible to this host.
