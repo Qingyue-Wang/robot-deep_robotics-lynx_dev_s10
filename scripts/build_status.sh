@@ -1,33 +1,60 @@
 #!/usr/bin/env bash
-# 显示每个代码生成包（cache/*）的「构建标记 vs 输入时间」，
-# 用来回答「为什么 ./start.sh 又打了 building inline」。
+# 显示每个包的「构建标记 vs 代码生成输入」，回答「./start.sh 为什么又 building inline」。
 #
 #   bash scripts/build_status.sh            # 只报告
-#   bash scripts/build_status.sh --touch    # 把标记刷成当前时间（跳过 rebuild）
+#   bash scripts/build_status.sh --settle   # 只把「构建产物噪声」造成的过期标记刷掉
+#   bash scripts/build_status.sh --touch    # 无条件刷掉所有过期标记
 #
-# 判定方式：rbnx 认为 `<pkg>/rbnx-build/.rbnx-built` 比构建输入旧时，
-# 会在 rbnx boot 里 inline 重跑 codegen（日志 `⚠ <pkg>: not built — building inline`）。
-# 构建输入 = package_manifest.yaml + capabilities/** + rbnx-build/{codegen,proto-staging}。
+# 背景：`rbnx boot` 只对「纯 codegen 包」做输入新鲜度校验——rbnx-build/ 里只有
+# codegen/、proto-staging/、logs/ 的包（当前是 depth_grasp 与 grasp_geometry）。
+# 它们的产物是生成的 Python 桩，必须和 capabilities/** 对齐，所以会被 inline 重建。
+#
+# 两个噪声源会让它误判：
+#   * provider 运行时 import 生成模块 → 写 __pycache__/*.pyc 到 codegen/ 里；
+#   * 删这些 .pyc 又会刷新父目录 mtime。
+# 这两种都只发生在 rbnx-build/ 里，与契约无关。`--settle` 只处理这一类（新输入
+# 落在 rbnx-build/ 下），capabilities/** 或 package_manifest.yaml 真变了则不动，
+# 保证该重建的时候仍然重建。
 set -uo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE_DIR="$DEPLOY_DIR/rbnx-boot/cache"
-TOUCH=0
-[[ "${1:-}" == "--touch" ]] && TOUCH=1
+MODE=report
+case "${1:-}" in
+  --touch)  MODE=touch ;;
+  --settle) MODE=settle ;;
+  "")       MODE=report ;;
+  *) echo "用法: $0 [--settle|--touch]" >&2; exit 2 ;;
+esac
+
+is_codegen_only() {
+  local pkg=$1 extra
+  extra=$(find "$pkg/rbnx-build" -mindepth 1 -maxdepth 1 -type d \
+            ! -name codegen ! -name proto-staging ! -name logs 2>/dev/null)
+  [[ -z "$extra" ]]
+}
 
 shopt -s nullglob
-stale_total=0
-printf '%-42s %-20s %-20s %s\n' PACKAGE MARKER NEWEST_INPUT STATE
+stale=0
+codegen_count=0
+
+printf '%-44s %-17s %-17s %s\n' PACKAGE MARKER NEWEST_INPUT STATE
 for pkg in "$CACHE_DIR"/*; do
   marker="$pkg/rbnx-build/.rbnx-built"
   [[ -f "$marker" ]] || continue
+  is_codegen_only "$pkg" || continue
+  codegen_count=$((codegen_count + 1))
 
   marker_s=$(stat -c %Y "$marker")
   newest=0
   newest_path="(none)"
+  newest_pyc=0
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
     s=$(stat -c %Y "$f" 2>/dev/null) || continue
+    case "$f" in
+      *__pycache__*|*.pyc) (( s > newest_pyc )) && newest_pyc=$s; continue ;;
+    esac
     if (( s > newest )); then newest=$s; newest_path="${f#$pkg/}"; fi
   done < <(
     find "$pkg/capabilities" -type f 2>/dev/null
@@ -37,24 +64,32 @@ for pkg in "$CACHE_DIR"/*; do
   )
 
   if (( newest > marker_s )); then
-    state="STALE  ($newest_path newer)"
-    stale_total=$((stale_total + 1))
-    if (( TOUCH )); then
+    case "$newest_path" in
+      rbnx-build/*) noise=1 ;;
+      *)            noise=0 ;;
+    esac
+    stale=$((stale + 1))
+    state="STALE ($newest_path newer)"
+    if [[ "$MODE" == touch ]] || { [[ "$MODE" == settle ]] && (( noise )); }; then
       touch "$marker"
-      state="TOUCHED (was stale: $newest_path)"
+      state="FIXED (was stale: $newest_path)"
     fi
   else
     state="ok"
+    (( newest_pyc > marker_s )) && state="ok（另有 .pyc 写入，已忽略）"
   fi
-  printf '%-42s %-20s %-20s %s\n' "$(basename "$pkg")" \
+  printf '%-44s %-17s %-17s %s\n' "$(basename "$pkg")" \
     "$(date -d "@$marker_s" '+%m-%d %H:%M:%S')" \
     "$(date -d "@$newest" '+%m-%d %H:%M:%S')" "$state"
 done
 
 echo
-if (( stale_total == 0 )); then
-  echo "所有包的构建标记都是新鲜的：下一次 ./start.sh 不会 inline 重建。"
+echo "纯 codegen 包 ${codegen_count} 个（其余包不会 inline 重建，不参与此判定）。"
+if (( stale == 0 )); then
+  echo "全部新鲜：下一次 ./start.sh 不会出现 'not built — building inline'。"
+elif [[ "$MODE" == settle || "$MODE" == touch ]]; then
+  echo "已刷新上面的标记；capabilities/** 与 package_manifest.yaml 真正变化时仍会重建。"
 else
-  echo "有 $stale_total 个包会被 inline 重建。原因见 STATE 列里那个比标记更新的文件。"
-  (( TOUCH )) || echo "确定是误报的话：bash scripts/build_status.sh --touch"
+  echo "有 $stale 个包会被 inline 重建。噪声（rbnx-build/ 下）可用 --settle，"
+  echo "确定是误报也可以用 --touch 无条件刷新。"
 fi
