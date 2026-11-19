@@ -335,9 +335,11 @@ velocity_smoother:
     # 转向。代价是直线段内不再追小偏差，宁可可允许走偏一点也要少抬腿。
     #
     # The angular deadband is now conditional and lives in
-    # nav2_wrapper.velocity_guard: 0.35 while translating, 0.22 when linear
-    # speed is ~0 (terminal in-place rotation). The smoother must pass small
-    # yaw commands through, otherwise the guard cannot see them.
+    # nav2_wrapper.velocity_guard: 0.35 while translating; when linear speed is
+    # ~0, 0.22 is an intent gate and commands in (0.22, 0.35) are boosted to
+    # 0.35 (the lower edge of the measured effective band), so the chassis
+    # does not step in place. The smoother must pass small yaw commands
+    # through, otherwise the guard cannot see them.
     deadband_velocity: [0.02, 0.0, 0.0]
     # Fail to zero promptly if the controller stops publishing.  This is not a
     # substitute for a geometric collision monitor, but prevents stale motion.

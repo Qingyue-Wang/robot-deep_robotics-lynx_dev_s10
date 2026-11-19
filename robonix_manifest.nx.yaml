@@ -57,9 +57,12 @@ env:
   ROS_DOMAIN_ID: "43"
   LYNX_ROBOT_DOMAIN_ID: "0"
   # Conditional angular deadband in nav2_wrapper.velocity_guard:
-  # 0.35 while translating, 0.22 when linear speed is ~0 (terminal pivot).
+  # 0.35 while translating; terminal pivot uses 0.22 as an intent gate and
+  # boosts any command in (0.22, 0.35) to 0.35 so the chassis does not step in
+  # place in the 0.22-0.35 band.
   ROBONIX_NAV_MOVING_ANGULAR_DEADBAND: "0.35"
   ROBONIX_NAV_TERMINAL_ANGULAR_DEADBAND: "0.22"
+  ROBONIX_NAV_TERMINAL_MIN_ANGULAR_SPEED: "0.35"
   ROBONIX_NAV_TERMINAL_LINEAR_EPS: "0.05"
   # Prebuilt drdds message package used by lynx_quadruped. On this Orin it is
   # the dog user's colcon workspace; on an nvidia-user robot install it is
