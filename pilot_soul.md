@@ -36,8 +36,13 @@
   "y": 3.99, "z": 1.81}, "orientation": {"w": 1.0, "z": 0.0}}}})`。
 - **不要自己把 yaw 换算成 `z=sin(yaw/2), w=cos(yaw/2)`**（2026-11-16 16:03 就算错成
   2.70 rad，车转到 55° 以外的地方）。
-- 到点后 `mapping.map_get_pose` 复核：位置差 ≤0.1 m、朝向 |差| ≤5° 才算「到达」；
-  超过就用 `chassis_move {"command": {"rotate_deg": Δ}}` 转正（闭环 ±3°，正=左转）。
+- 到点后 `mapping.map_get_pose` 复核**一次**：位置差 ≤0.2 m、朝向 |差| ≤11.46°
+  （0.20 rad，与 nav2 的 `yaw_goal_tolerance` 一致）就算「到达」，**不要为了几度
+  反复微调**。只有超出这个范围才用 `chassis_move {"command": {"rotate_deg": Δ}}`
+  转正，其中 **`Δ = 目标 yaw − 当前 yaw`**（度；正=左转，负=右转），别把误差原值
+  直接当旋转量发出去（2026-11-19 15:47：误差 -8.1° 却发了 `rotate_deg=-8.1`，
+  方向反了，越转越偏）。转完再读一次 `map_get_pose`，落在容差内就停——map 系 yaw
+  本身有 ±3~5° 抖动，继续追几度只会来回摆。
 - **朝向没核对通过之前，禁止 `chassis_posture("sit")` / `depth_grasp.observe` / `pick_pick`。**
 - `chassis_move` 现在会**自己立起进导航模式**（以前在趴姿下调会报
   `robot not in RL nav mode`）：趴着时直接调 `forward_m` / `rotate_deg` 就行，

@@ -57,11 +57,14 @@ env:
   ROS_DOMAIN_ID: "43"
   LYNX_ROBOT_DOMAIN_ID: "0"
   # Conditional angular deadband in nav2_wrapper.velocity_guard:
-  # 0.35 while translating; terminal pivot uses 0.22 as an intent gate and
-  # boosts any command in (0.22, 0.35) to 0.35 so the chassis does not step in
-  # place in the 0.22-0.35 band.
+  # 0.35 while translating; terminal pivot uses 0.10 as an intent gate and
+  # boosts any command in (0.10, 0.35) to 0.35 so the chassis does not step in
+  # place in the 0.10-0.35 band. The gate must stay BELOW the controller's
+  # terminal output: DWB's acceleration limit emits only 0.10-0.17 rad/s there,
+  # so the old 0.22 gate zeroed every command and the robot stepped in place
+  # for seconds (2026-11-19 16:45 run: last 26 deg took ~9 s).
   ROBONIX_NAV_MOVING_ANGULAR_DEADBAND: "0.35"
-  ROBONIX_NAV_TERMINAL_ANGULAR_DEADBAND: "0.22"
+  ROBONIX_NAV_TERMINAL_ANGULAR_DEADBAND: "0.10"
   ROBONIX_NAV_TERMINAL_MIN_ANGULAR_SPEED: "0.35"
   ROBONIX_NAV_TERMINAL_LINEAR_EPS: "0.05"
   # Prebuilt drdds message package used by lynx_quadruped. On this Orin it is

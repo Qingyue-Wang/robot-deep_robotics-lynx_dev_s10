@@ -141,13 +141,20 @@ controller_server:
       # 先比对航向，|误差| > angular_dist_threshold 就先原地转到路径方向，
       # 再交给 DWB 走直线。DWB 的参数直接写在下面（primary_controller 按类名加载）。
       # 注意：原地转要求 使用模式=导航(1)、步态 0x3002；否则 /NAV_CMD 的纯 yaw
-      # 不会驱动轮子。rotate_to_heading_angular_vel 0.45 高于平滑器 0.35 死区。
+      # 不会驱动轮子。rotate_to_heading_angular_vel 0.40 高于平滑器 0.35 死区。
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "dwb_core::DWBLocalPlanner"
       angular_dist_threshold: 0.30
-      angular_disengage_threshold: 0.12
-      forward_sampling_distance: 0.45
-      rotate_to_heading_angular_vel: 0.45
+      # 0.12 → 0.18 (2026-11-19 16:45): 偏航反馈和底盘停步约有 0.5 s 滞后，
+      # 0.45 rad/s 下会多转 ~13°；实测折角处从 31° 转到 119°，随后 DWB 又
+      # 反向转了 ~60°。提前一点交回 DWB，让它在行进中收掉残差。
+      angular_disengage_threshold: 0.18
+      # 0.45 → 0.25: 折角过冲的另一个可能原因是 0.45 m 的采样点跨过了折角、
+      # 对到了下一段的朝向；0.25 尽量留在当前段。直线段不受影响。
+      forward_sampling_distance: 0.25
+      # 0.45 → 0.40：原地转速低一点，反馈滞后造成的过冲同比减小，同时仍高于
+      # 0.35 的角速度死区。
+      rotate_to_heading_angular_vel: 0.40
       max_angular_accel: 1.0
       # 必须开环：FAST-LIO 的 /odom twist 恒为 0（只有 pose，没有 twist）。
       # closed_loop=true（默认）时 shim 用 measured angular.z 做加速度限幅，
