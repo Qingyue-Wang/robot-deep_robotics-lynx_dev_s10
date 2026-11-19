@@ -53,6 +53,21 @@ for repo in "${REPOS[@]}"; do
   printf '%s\t%s\t%s\t%s\n' "$rel" "$branch" "$commit" "$TAG" >> "$SUMMARY"
 done
 
+# git add/commit 会写包内的 .git/**，而 rbnx 判断「纯 codegen 包」是否过期时会看包内
+# 目录 mtime —— 提交之后下一次 ./start.sh 就会多打两条 `not built` 并白跑一遍 codegen。
+# 这里在提交完成后把这两个包的构建标记推到最新（不重新 codegen：契约没变）。
+shopt -s nullglob
+for pkg in "$DEPLOY_DIR"/rbnx-boot/cache/*; do
+  marker="$pkg/rbnx-build/.rbnx-built"
+  [[ -f "$marker" ]] || continue
+  extra=$(find "$pkg/rbnx-build" -mindepth 1 -maxdepth 1 -type d \
+            ! -name codegen ! -name proto-staging ! -name logs 2>/dev/null)
+  [[ -z "$extra" ]] || continue          # 只处理纯 codegen 包
+  find "$pkg/rbnx-build/codegen" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+  touch "$marker"
+done
+shopt -u nullglob
+
 # 另外把“不在 git 里但回退时要知道”的东西抄一份：清单与关键配置
 cp -a "$DEPLOY_DIR/robonix_manifest.nx.yaml" "$SNAP_DIR/" 2>/dev/null
 mkdir -p "$SNAP_DIR/config"
