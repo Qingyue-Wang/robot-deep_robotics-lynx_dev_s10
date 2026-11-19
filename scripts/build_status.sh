@@ -59,19 +59,25 @@ for pkg in "$CACHE_DIR"/*; do
   done < <(
     find "$pkg/capabilities" -type f 2>/dev/null
     printf '%s\n' "$pkg/package_manifest.yaml"
-    find "$pkg/rbnx-build/codegen" -maxdepth 1 2>/dev/null
+    # rbnx 的判定精确到「秒」，并且把构建产物目录本身也算作输入：构建结束时
+    # 标记与这些目录常落在同一秒里，于是每次重启都判过期。这里一并纳入统计。
+    printf '%s\n' "$pkg/rbnx-build" "$pkg/rbnx-build/codegen" \
+      "$pkg/rbnx-build/proto-staging" "$pkg/rbnx-build/logs"
+    find "$pkg/rbnx-build/codegen" -maxdepth 2 -not -path '*__pycache__*' 2>/dev/null
     find "$pkg/rbnx-build/proto-staging" -maxdepth 1 2>/dev/null
   )
 
-  if (( newest > marker_s )); then
-    case "$newest_path" in
-      rbnx-build/*) noise=1 ;;
-      *)            noise=0 ;;
+  # rbnx 把「同一秒」也算过期（构建产物目录与标记常同秒），这里同样按 >= 判
+  if (( newest >= marker_s )); then
+    case "${newest_path%%/*}" in
+      rbnx-build) noise=1 ;;   # 构建产物（含 rbnx-build 目录本身）造成的噪声
+      *)          noise=0 ;;
     esac
     stale=$((stale + 1))
     state="STALE ($newest_path newer)"
     if [[ "$MODE" == touch ]] || { [[ "$MODE" == settle ]] && (( noise )); }; then
-      touch "$marker"
+      # 往后推 2 秒，确保严格新于构建产物目录（rbnx 按秒比较）
+      touch -d "$(date -d '+2 seconds' '+%Y-%m-%d %H:%M:%S')" "$marker"
       state="FIXED (was stale: $newest_path)"
     fi
   else

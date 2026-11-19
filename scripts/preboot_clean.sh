@@ -1,36 +1,84 @@
 #!/usr/bin/env bash
 # 启动前清场：
-#   1) 杀掉上一轮残留的本部署进程（按 cwd / cmdline 认，绝不按通用 ROS 名误杀）；
+#   1) 杀掉上一轮残留的本部署「栈进程」（严格按 cmdline / cwd 认，绝不误杀交互 shell）；
 #   2) 确认没有存活进程后，清掉死掉的 Fast DDS 参与者留在 /dev/shm 里的段与信号量
 #      （不清的话新节点建 DDS 参与者会卡住几十秒，provider 30 s 超时启动失败）；
 #   3) 删掉 codegen 目录里的 __pycache__ —— 它们是 provider 运行时 import 生成模块
 #      写下的副产物，会让 rbnx 误判「构建输入比 .rbnx-built 标记新」，于是每次
 #      ./start.sh 都 inline 重建 depth_grasp / grasp_geometry。
+#
+# 用法：bash scripts/preboot_clean.sh [--dry-run]
 set -uo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+DRY_RUN=0
+[[ "${1:-}" == "--dry-run" ]] && DRY_RUN=1
+
+# 栈进程的特征：命令行里必须出现这些串之一（都在部署的 rbnx-boot 之下，或 rbnx 自身）。
+STACK_PATTERNS=(
+  "$DEPLOY_DIR/rbnx-boot"
+  "rbnx boot"
+  "robonix-atlas"
+  "robonix-executor"
+  "robonix-soma"
+  "robonix-pilot"
+  "robonix-liaison"
+)
+# 绝不杀的进程名（交互 shell / 登录 / 系统服务 / 我们的调用方）。
+NEVER_KILL_COMM=(
+  bash sh dash zsh fish sshd ssh login agetty sudo su systemd systemd-logind
+  dbus-daemon tmux screen init S99*
+)
+
+ancestors_of_self() {
+  local pid=$$
+  while [[ -n "$pid" && "$pid" != "0" && "$pid" != "1" ]]; do
+    echo "$pid"
+    pid=$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null || true)
+  done
+  echo 1
+}
+
+in_list() { local needle=$1; shift; local x; for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done; return 1; }
 
 collect_pids() {
-  local pid cwd cmd
+  local d pid comm cmd cwd
+  local -a anc
+  mapfile -t anc < <(ancestors_of_self)
   for d in /proc/[0-9]*; do
     pid=${d#/proc/}
     [[ "$pid" == "$$" ]] && continue
-    cwd=$(readlink "$d/cwd" 2>/dev/null || true)
-    [[ "$cwd" == "$DEPLOY_DIR"* ]] && { echo "$pid"; continue; }
+    in_list "$pid" "${anc[@]}" && continue          # 自己和祖先（含 start.sh、shell）一律不动
+    comm=$({ cat "$d/comm"; } 2>/dev/null || true)
+    in_list "$comm" "${NEVER_KILL_COMM[@]}" && continue
     cmd=$({ tr '\0' ' ' < "$d/cmdline"; } 2>/dev/null || true)
-    [[ "$cmd" == *"$DEPLOY_DIR/rbnx-boot"* ]] && echo "$pid"
+    [[ -z "$cmd" ]] && continue                     # 内核线程 / 已退出
+    cwd=$(readlink "$d/cwd" 2>/dev/null || true)
+
+    local hit=0 p
+    for p in "${STACK_PATTERNS[@]}"; do
+      [[ "$cmd" == *"$p"* ]] && { hit=1; break; }
+    done
+    # 栈的子进程（ros2 launch 起的节点等）cwd 在 rbnx-boot 之下；登录 shell 在部署根，不会命中
+    [[ $hit -eq 0 && "$cwd" == "$DEPLOY_DIR/rbnx-boot"* ]] && hit=1
+    (( hit )) && echo "$pid|${cmd:0:90}"
   done | sort -u
 }
 
-mapfile -t pids < <(collect_pids)
-if ((${#pids[@]})); then
-  echo "[preboot] 停止 ${#pids[@]} 个残留进程：${pids[*]}"
+mapfile -t hits < <(collect_pids)
+if ((${#hits[@]})); then
+  echo "[preboot] 发现 ${#hits[@]} 个本部署残留栈进程："
+  for h in "${hits[@]}"; do echo "[preboot]   ${h%%|*}  ${h#*|}"; done
+  if (( DRY_RUN )); then
+    echo "[preboot] --dry-run：不杀进程、不清 /dev/shm"
+    exit 0
+  fi
+  pids=()
+  for h in "${hits[@]}"; do pids+=("${h%%|*}"); done
   kill -TERM "${pids[@]}" 2>/dev/null || true
   for _ in $(seq 1 10); do
     alive=()
-    for p in "${pids[@]}"; do
-      [[ -d "/proc/$p" ]] && alive+=("$p")
-    done
+    for p in "${pids[@]}"; do [[ -d "/proc/$p" ]] && alive+=("$p"); done
     ((${#alive[@]})) || break
     sleep 0.5
   done
@@ -39,12 +87,11 @@ if ((${#pids[@]})); then
     kill -KILL "${alive[@]}" 2>/dev/null || true
     sleep 1
   fi
+else
+  echo "[preboot] 没有本部署的残留栈进程"
 fi
 
-# 还有本部署的进程在跑就别动 /dev/shm（那是活着的参与者要用的）
-mapfile -t still < <(collect_pids)
-if ((${#still[@]})); then
-  echo "[preboot] 仍有本部署进程存活（${still[*]}），跳过 /dev/shm 清理"
+if (( DRY_RUN )); then
   exit 0
 fi
 
@@ -69,8 +116,8 @@ done
 if ((n_cppyc > 0)); then
   echo "[preboot] 清理了 ${n_cppyc} 个 codegen __pycache__（避免误判需要 inline build）"
 fi
-# 删 __pycache__ 会刷新父目录 mtime，同样会被 rbnx 当成「输入变了」；这里只把
-# 「新输入落在 rbnx-build/ 下」的噪声标记刷掉，capabilities/ 真改了仍然会重建。
-if [[ -x "$DEPLOY_DIR/scripts/build_status.sh" ]]; then
-  bash "$DEPLOY_DIR/scripts/build_status.sh" --settle | sed -n '2,99p'
+# rbnx 会把「构建产物目录」也算成输入、且按秒比较，导致 codegen 包每次启动都判
+# 「not built」。契约真变了就显式重建，然后把标记推到严格新于产物（详见该脚本）。
+if [[ -x "$DEPLOY_DIR/scripts/prebuild_codegen.sh" ]]; then
+  bash "$DEPLOY_DIR/scripts/prebuild_codegen.sh"
 fi
