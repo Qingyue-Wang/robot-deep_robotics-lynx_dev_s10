@@ -29,6 +29,7 @@ fi
 set -u
 RSLIDAR_PID=""
 TF_PID=""
+TF_REAR_PID=""
 
 # Kill a driver left behind by an unclean previous run. A stale instance owns
 # the Airy's UDP ports (6691/7781/6681); the replacement then starts but never
@@ -55,6 +56,10 @@ cleanup() {
     kill "$TF_PID" 2>/dev/null || true
     wait "$TF_PID" 2>/dev/null || true
   fi
+  if [ -n "$TF_REAR_PID" ]; then
+    kill "$TF_REAR_PID" 2>/dev/null || true
+    wait "$TF_REAR_PID" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT INT TERM
 
@@ -62,15 +67,19 @@ trap cleanup EXIT INT TERM
 # PROJECT_PATH (~/rslidar_ws/src/rslidar_sdk/config/config.yaml), so it needs no
 # cwd or config_path argument — just the ROS + workspace environment above.
 #
-# Publish the front lidar extrinsic. rslidar stamps the cloud in frame `airy_201`,
-# which the S10's native TF tree does not carry; without it rtabmap's ICP
-# odometry drops every scan ("TF of received scan cloud ... is not set").
-# Translation/rotation is the S10 URDF front lidar_joint origin: the Airy is
-# mounted VERTICALLY on the head with its top facing forward, so its native
-# frame (Z = up/out of the emitting face) is rotated +90 deg about Y into
-# base_link (lidar "up" -> robot "forward"). This makes the 360-deg mechanical
-# scan a VERTICAL disc, which projects to a thin left-right strip in the ground
-# plane — see rtabmap_params.yaml Grid/NormalsSegmentation note.
+# Publish both lidar extrinsics. rslidar stamps the clouds in frames
+# `airy_201` / `airy_202`, which the S10's native TF tree does not carry;
+# without them rtabmap's ICP odometry drops every scan ("TF of received scan
+# cloud ... is not set") and the navigation scan merger cannot project the
+# rear cloud.
+#
+# Front: Airy mounted VERTICALLY on the head with its top facing forward, so
+# its native frame (Z = up/out of the emitting face) is rotated +90 deg about
+# Y into base_link (lidar "up" -> robot "forward"). This makes the 360-deg
+# mechanical scan a VERTICAL disc, which projects to a thin left-right strip
+# in the ground plane — see rtabmap_params.yaml Grid/NormalsSegmentation note.
+# Rear: the same vertical bracket turned 180 deg about base_link Z, so the
+# emitting face points backward. See the rear block below.
 if command -v ros2 >/dev/null 2>&1; then
   ros2 run tf2_ros static_transform_publisher \
     --x 0.22341 --y 0.0 --z -0.0001 \
@@ -78,6 +87,17 @@ if command -v ros2 >/dev/null 2>&1; then
     --frame-id base_link --child-frame-id airy_201 \
     --ros-args -r __node:=lynx_lidar_tf_front &
   TF_PID=$!
+
+  # Rear Airy: same vertical bracket rotated 180 deg about base_link Z, so the
+  # native Z (emitting face) points backward instead of forward. Verified
+  # against the live cloud: the floor sits at base_link z ~= -0.45 m with
+  # this roll, not above the robot.
+  ros2 run tf2_ros static_transform_publisher \
+    --x -0.22341 --y 0.0 --z -0.0001 \
+    --roll 3.14159 --pitch -1.5708 --yaw 3.14159 \
+    --frame-id base_link --child-frame-id airy_202 \
+    --ros-args -r __node:=lynx_lidar_tf_rear &
+  TF_REAR_PID=$!
 fi
 
 if [ -x "$RSLIDAR_NODE" ]; then

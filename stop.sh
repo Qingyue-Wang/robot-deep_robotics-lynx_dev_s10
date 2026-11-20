@@ -81,6 +81,16 @@ fi
 # generic ROS process names, so other deployments on the host are safe.
 terminate_deployment_orphans
 
+# start.sh launches these deployment-level navigation helpers outside rbnx;
+# they are not under rbnx-boot/cache, so stop them explicitly.
+for pattern in "scripts/lynx_scan_nav.py" "scripts/drive_direction.py"; do
+  pkill -TERM -f -- "$DEPLOY_DIR/$pattern" 2>/dev/null || true
+done
+sleep 0.5
+for pattern in "scripts/lynx_scan_nav.py" "scripts/drive_direction.py"; do
+  pkill -KILL -f -- "$DEPLOY_DIR/$pattern" 2>/dev/null || true
+done
+
 # The S10 uses Fast DDS (default RMW). Clean stale shared-memory segments while
 # preserving segments that still belong to live participants.
 if [[ -x /opt/ros/humble/bin/fastdds ]] &&

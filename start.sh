@@ -64,10 +64,19 @@ if [[ -x "$DEPLOY_DIR/scripts/preboot_clean.sh" ]]; then
 fi
 
 stack_started=0
+NAV_EXTRAS_PIDS=()
 
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
+
+  # Deployment-level navigation helpers started below (merged scan and
+  # direction governor); they are not managed by rbnx.
+  if ((${#NAV_EXTRAS_PIDS[@]})); then
+    echo "[start] stopping nav extras: ${NAV_EXTRAS_PIDS[*]}"
+    kill "${NAV_EXTRAS_PIDS[@]}" 2>/dev/null || true
+    wait "${NAV_EXTRAS_PIDS[@]}" 2>/dev/null || true
+  fi
 
   # `rbnx boot` handles Ctrl-C itself: it tears the children down and removes
   # state.json. Calling `rbnx shutdown` again then just prints
@@ -92,6 +101,29 @@ stack_started=1
 if [[ "${ROBONIX_SKIP_INLINE_BUILD:-0}" == "1" && -x "$DEPLOY_DIR/scripts/build_status.sh" ]]; then
   echo "[boot] ROBONIX_SKIP_INLINE_BUILD=1：跳过 inline codegen（已刷新构建标记）"
   bash "$DEPLOY_DIR/scripts/build_status.sh" --touch | sed -n '2,99p'
+fi
+
+# Navigation extras:
+#   lynx_scan_nav   — front+rear Airy clouds -> /scanner/scan_nav (costmaps)
+#   drive_direction — plan-angle -> DWB forward/reverse velocity range
+# Both wait for the driver/nav2 to appear, so starting them before `rbnx boot`
+# is safe. start.sh's cleanup() and stop.sh's explicit patterns reap them.
+if [[ -f "$DEPLOY_DIR/scripts/lynx_scan_nav.py" ]]; then
+  python3 "$DEPLOY_DIR/scripts/lynx_scan_nav.py" --manifest "$MANIFEST" \
+    >>"$LOG_DIR/lynx_scan_nav.log" 2>&1 &
+  NAV_EXTRAS_PIDS+=($!)
+fi
+if [[ -f "$DEPLOY_DIR/scripts/drive_direction.py" && \
+      -f "$DEPLOY_DIR/config/drive_direction.yaml" ]]; then
+  python3 "$DEPLOY_DIR/scripts/drive_direction.py" --manifest "$MANIFEST" \
+    --config "$DEPLOY_DIR/config/drive_direction.yaml" \
+    >>"$LOG_DIR/drive_direction.log" 2>&1 &
+  NAV_EXTRAS_PIDS+=($!)
+fi
+if ((${#NAV_EXTRAS_PIDS[@]})); then
+  echo "[start] nav extras: ${NAV_EXTRAS_PIDS[*]} (logs: $LOG_DIR)"
+else
+  echo "[start] nav extras: none"
 fi
 
 rbnx boot --no-update-check -f "$MANIFEST" "$@"

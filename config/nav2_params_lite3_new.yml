@@ -398,13 +398,15 @@ local_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        # MID-360 supplies the full-surround scan; the front RGB-D camera fills
-        # its near-field blind area for low obstacles. Keep the depth cloud out
-        # of the global costmap and RTAB-Map occupancy-grid generation so it
-        # cannot create persistent duplicate walls.
+        # /scanner/scan_nav is the front+rear Airy merged 360-degree scan
+        # (scripts/lynx_scan_nav.py). /scanner/scan stays the front-only
+        # projection used by mapping and the velocity guard. The front RGB-D
+        # camera fills the near-field blind area for low obstacles. Keep the
+        # depth cloud out of the global costmap and RTAB-Map occupancy-grid
+        # generation so it cannot create persistent duplicate walls.
         observation_sources: scan depth_cloud
         scan:
-          topic: /scanner/scan
+          topic: /scanner/scan_nav
           data_type: "LaserScan"
           max_obstacle_height: 2.0
           obstacle_min_range: 0.0
@@ -479,7 +481,7 @@ global_costmap:
         enabled: true
         observation_sources: scan
         scan:
-          topic: /scanner/scan
+          topic: /scanner/scan_nav
           data_type: "LaserScan"
           max_obstacle_height: 2.0
           obstacle_min_range: 0.0

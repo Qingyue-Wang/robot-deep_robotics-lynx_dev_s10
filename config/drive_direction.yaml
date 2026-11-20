@@ -1,0 +1,38 @@
+# Drive-direction governor (scripts/drive_direction.py).
+#
+# The robot heading is compared with the planned path at lookahead_m. Within
+# the forward band DWB may only sample positive linear velocity; beyond the
+# reverse band it may only sample negative linear velocity. The two bands
+# overlap intentionally: 80..100 degrees keeps the previous mode so a wheeled
+# quadruped does not chatter between forward and reverse at the 90-degree
+# boundary.
+#
+# These are DWB dynamic parameters, written through
+# /controller_server/set_parameters:
+#   FollowPath.min_vel_x / FollowPath.max_vel_x
+# The static nav2_params_lite3_new.yml keeps min_vel_x=0.0 / max_vel_x=0.35,
+# so a crashed governor leaves the controller forward-only (fail-safe), and a
+# node restart starts in forward again.
+
+plan_topic: /plan
+controller_node: /controller_server
+controller_plugin: FollowPath
+base_frame: base_link
+
+# Distance along the path used to measure the angle.
+lookahead_m: 0.5
+# Hysteresis around the requested 90-degree rule.
+reverse_enter_deg: 100.0
+forward_enter_deg: 80.0
+# Ignore a path whose remaining target is this close; RotateToGoal owns it.
+min_target_m: 0.15
+
+# DWB velocity ranges (m/s).
+forward_min_vel_x: 0.0
+forward_max_vel_x: 0.35
+reverse_min_vel_x: -0.15
+reverse_max_vel_x: 0.0
+
+rate_hz: 10.0
+# No fresh /plan for this long -> return to forward-only.
+plan_timeout_s: 2.0

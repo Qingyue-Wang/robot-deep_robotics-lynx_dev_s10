@@ -1,12 +1,14 @@
-# RoboSense Airy driver config for the Lynx S10 FRONT lidar (airy_201).
+# RoboSense Airy driver config for the Lynx S10 front and rear lidars.
 #
 # Installed as <ws>/src/rslidar_sdk/config/config.yaml by scripts/install.sh.
 # `__LIDAR_HOST_IP__` is replaced with LIDAR_HOST_IP (default 10.21.33.100),
 # the Orin's enP8p1s0 address the Airy's multicast group must be joined on.
 #
 # Matches the topics/frames the Robonix primitives expect:
-#   /airy_201/points  (PointCloud2, XYZIRT)
+#   /airy_201/points  (PointCloud2, XYZIRT)  front, vertical facing forward
 #   /airy_201/imu     (sensor_msgs/Imu)
+#   /airy_202/points  (PointCloud2, XYZIRT)  rear,  vertical facing backward
+#   /airy_202/imu     (sensor_msgs/Imu)
 #
 # use_lidar_clock=false keeps message header stamps on the host clock, which
 # FAST-LIO forwards into the odom TF; ts_first_point=true makes the per-point
@@ -53,4 +55,36 @@ lidar:
       ros_send_packet_topic: /rslidar_packets
       ros_send_imu_data_topic: /airy_201/imu
       ros_send_point_cloud_topic: /airy_201/points
+      ros_queue_length: 100
+
+  # Rear Airy: same model, mounted vertically facing backward. Its UDP
+  # endpoints are the front's +1 (lidar IP .202, group .202, 6692/7782/6682).
+  # Only the navigation scan merger consumes this cloud; RTAB-Map keeps using
+  # the front lidar through lynx_lidar.
+  - driver:
+      lidar_type: RSAIRY
+      msop_port: 6692
+      difop_port: 7782
+      imu_port: 6682
+      socket_recv_buf: 8388608
+      host_address: __LIDAR_HOST_IP__
+      group_address: 224.10.10.202
+      user_layer_bytes: 0
+      tail_layer_bytes: 0
+      min_distance: 0.2
+      max_distance: 60
+      use_lidar_clock: false
+      dense_points: true
+      ts_first_point: true
+      start_angle: 0
+      end_angle: 360
+      pcap_repeat: true
+      pcap_rate: 1.0
+      pcap_path: /home/robosense/lidar.pcap
+    ros:
+      ros_frame_id: airy_202
+      ros_recv_packet_topic: /rslidar_packets_rear
+      ros_send_packet_topic: /rslidar_packets_rear
+      ros_send_imu_data_topic: /airy_202/imu
+      ros_send_point_cloud_topic: /airy_202/points
       ros_queue_length: 100

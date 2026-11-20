@@ -37,7 +37,8 @@ env:
   PYTHONDONTWRITEBYTECODE: "1"
   # 抓取演练（dry-run）：现场没有物体时也能看完整条动作链（规划→悬停→下爪→
   # 合爪→抬起→回位），夹爪里不会有东西。关掉：把下面三行删掉或把第一个设为 "0"。
-  ROBONIX_GRASP_DRY_RUN: "1"
+  # 现在（2026-11-20）关掉：开始真实抓取测试。想看演练再改回 "1"。
+  ROBONIX_GRASP_DRY_RUN: "0"
   # 虚拟方块：桌面 z（米）、尺寸 mm（长,宽,高）——顶面 = 桌面 + 高
   ROBONIX_GRASP_DRY_RUN_SURFACE: "-0.0657"
   ROBONIX_GRASP_DRY_RUN_SIZE: "40,40,30"

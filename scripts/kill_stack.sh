@@ -1,7 +1,7 @@
 #!/bin/bash
 # 清理所有 robonix 相关残留进程（避免 pkill -f 匹配到自身命令行）
 cd /home/dog/robot-deep_robotics-lynx_s10 || exit 1
-pats=('rbnx start' 'rbnx boot' 'robonix-atlas' 'robonix-soma' 'robonix-executor' 'robonix-pilot' 'robonix-liaison' 'soma_runtime' 'odom_guard.py' 'piper_single' 'realsense2_camera_node' 'lynx_quadruped.main' 'lynx_lidar' 'lynx_fastlio' 'lynx_imu' 'laser_mapping' 'rtabmap' 'bt_navigator' 'controller_server' 'planner_server' 'velocity_guard' 'map_to_odom_bridge' 'grasp_geometry' 'grasp_skill' 'depth_grasp')
+pats=('rbnx start' 'rbnx boot' 'robonix-atlas' 'robonix-soma' 'robonix-executor' 'robonix-pilot' 'robonix-liaison' 'soma_runtime' 'odom_guard.py' 'lynx_scan_nav.py' 'drive_direction.py' 'piper_single' 'realsense2_camera_node' 'lynx_quadruped.main' 'lynx_lidar' 'lynx_fastlio' 'lynx_imu' 'laser_mapping' 'rtabmap' 'bt_navigator' 'controller_server' 'planner_server' 'velocity_guard' 'map_to_odom_bridge' 'grasp_geometry' 'grasp_skill' 'depth_grasp')
 for p in "${pats[@]}"; do
   pkill -f -- "$p" 2>/dev/null
 done
