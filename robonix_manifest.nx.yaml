@@ -517,6 +517,12 @@ skill:
       # 和 `piper_ctl.home_joints_deg` 一模一样，否则抓完底盘 guard 会再补一次
       # arm/home，臂白动一次。空 = 全零。
       home_joints_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      # observe 与 pick 是两次独立调用时，pick 直接复用 observe 刚量好的结果
+      # （同一目标、臂没挪窝、45 s 内），省掉再走一趟观察位 + 再问一次 VLM。
+      reuse_look:
+        enabled: true
+        max_age_s: 45.0
+        max_joint_delta_deg: 4.0
       observe_scan:
         enabled: true
         # 关闭「备用观察位」：只拍标称位和 anchors_deg 里的每一个位姿，不再围绕它们
