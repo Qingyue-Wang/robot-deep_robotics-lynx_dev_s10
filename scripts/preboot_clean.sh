@@ -121,3 +121,7 @@ fi
 if [[ -x "$DEPLOY_DIR/scripts/prebuild_codegen.sh" ]]; then
   bash "$DEPLOY_DIR/scripts/prebuild_codegen.sh"
 fi
+# YOLO 检测旁路服务（numpy1.x 的 venv）。已起就跳过；权重/解释器缺失也不报错。
+if [[ -x "$DEPLOY_DIR/scripts/start_yolo_server.sh" ]]; then
+  bash "$DEPLOY_DIR/scripts/start_yolo_server.sh" || true
+fi

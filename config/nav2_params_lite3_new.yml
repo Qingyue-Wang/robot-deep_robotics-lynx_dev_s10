@@ -141,7 +141,8 @@ controller_server:
       # 先比对航向，|误差| > angular_dist_threshold 就先原地转到路径方向，
       # 再交给 DWB 走直线。DWB 的参数直接写在下面（primary_controller 按类名加载）。
       # 注意：原地转要求 使用模式=导航(1)、步态 0x3002；否则 /NAV_CMD 的纯 yaw
-      # 不会驱动轮子。rotate_to_heading_angular_vel 0.40 高于平滑器 0.35 死区。
+      # 不会驱动轮子。rotate_to_heading_angular_vel 0.40 高于 velocity_guard
+      # 的 0.35 行驶死区（smoother 本身的角速度死区是 0）。
       plugin: "nav2_rotation_shim_controller::RotationShimController"
       primary_controller: "dwb_core::DWBLocalPlanner"
       angular_dist_threshold: 0.30
@@ -341,12 +342,11 @@ velocity_smoother:
     # 抬腿）。再抬到 0.35：只有真正的纠偏才抬腿，且抬脚就是 76%+ 响应的有效
     # 转向。代价是直线段内不再追小偏差，宁可可允许走偏一点也要少抬腿。
     #
-    # The angular deadband is now conditional and lives in
+    # The angular deadband is conditional and lives in
     # nav2_wrapper.velocity_guard: 0.35 while translating; when linear speed is
-    # ~0, 0.22 is an intent gate and commands in (0.22, 0.35) are boosted to
-    # 0.35 (the lower edge of the measured effective band), so the chassis
-    # does not step in place. The smoother must pass small yaw commands
-    # through, otherwise the guard cannot see them.
+    # ~0, 0.10 is an intent gate and commands in (0.10, 0.35) are boosted to
+    # 0.35; anything >= 0.35 passes unchanged. The smoother must pass small yaw
+    # commands through, otherwise the guard cannot see them.
     deadband_velocity: [0.02, 0.0, 0.0]
     # Fail to zero promptly if the controller stops publishing.  This is not a
     # substitute for a geometric collision monitor, but prevents stale motion.

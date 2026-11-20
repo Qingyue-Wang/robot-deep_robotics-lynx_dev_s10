@@ -19,8 +19,10 @@ controller_node: /controller_server
 controller_plugin: FollowPath
 base_frame: base_link
 
-# Distance along the path used to measure the angle.
-lookahead_m: 0.5
+# Distance along the path used to measure the angle. Match the shim's
+# forward_sampling_distance (0.25 m) so the forward/reverse mode and the
+# shim's own heading error are measured at the same point.
+lookahead_m: 0.25
 # Hysteresis around the requested 90-degree rule.
 reverse_enter_deg: 100.0
 forward_enter_deg: 80.0
@@ -28,11 +30,27 @@ forward_enter_deg: 80.0
 min_target_m: 0.15
 
 # DWB velocity ranges (m/s).
+# Forward and reverse use the same magnitude and the same acceleration,
+# angular limits, critics, path and final RotateToGoal. Only the sign of the
+# linear velocity range changes; this is the "same logic, backwards" mode.
+# Lower reverse_min_vel_x if the robot backs up faster than desired.
 forward_min_vel_x: 0.0
 forward_max_vel_x: 0.35
-reverse_min_vel_x: -0.15
+reverse_min_vel_x: -0.35
 reverse_max_vel_x: 0.0
+
+# RotationShimController angular_dist_threshold. Forward keeps the original
+# "rotate in place first" behaviour above 0.30 rad. Reverse raises it above
+# pi so the shim never turns the robot around; it hands the path to DWB and
+# the reverse velocity range above backs the robot along the same plan.
+forward_angular_dist_threshold: 0.30
+reverse_angular_dist_threshold: 3.15
 
 rate_hz: 10.0
 # No fresh /plan for this long -> return to forward-only.
-plan_timeout_s: 2.0
+# /plan is only republished when the planner produces a path (observed gaps
+# of 3-9 s on the S10); a 2 s timeout made the governor flip forward/reverse
+# every 2 s, which in turn made DWB alternate the yaw sign and the robot
+# oscillate in place instead of rotating. Keep the last direction through a
+# normal planning gap; a goal that has ended still falls back to forward.
+plan_timeout_s: 10.0

@@ -65,11 +65,11 @@ env:
   LYNX_ROBOT_DOMAIN_ID: "0"
   # Conditional angular deadband in nav2_wrapper.velocity_guard:
   # 0.35 while translating; terminal pivot uses 0.10 as an intent gate and
-  # boosts any command in (0.10, 0.35) to 0.35 so the chassis does not step in
-  # place in the 0.10-0.35 band. The gate must stay BELOW the controller's
-  # terminal output: DWB's acceleration limit emits only 0.10-0.17 rad/s there,
-  # so the old 0.22 gate zeroed every command and the robot stepped in place
-  # for seconds (2026-11-19 16:45 run: last 26 deg took ~9 s).
+  # boosts any command in (0.10, 0.35) to 0.35; anything >= 0.35 passes as-is.
+  # The gate must stay BELOW the controller's terminal output: DWB's
+  # acceleration limit emits only 0.10-0.17 rad/s there, so the old 0.22 gate
+  # zeroed every command and the robot stepped in place for seconds
+  # (2026-11-19 16:45 run: last 26 deg took ~9 s).
   ROBONIX_NAV_MOVING_ANGULAR_DEADBAND: "0.35"
   ROBONIX_NAV_TERMINAL_ANGULAR_DEADBAND: "0.10"
   ROBONIX_NAV_TERMINAL_MIN_ANGULAR_SPEED: "0.35"
@@ -469,7 +469,21 @@ service:
       frame_id: camera_435i_color_optical_frame
       depth_units_mm: 1.0             # RealSense 对齐深度是 uint16 毫米
       top_point_source: topface
-      # 调用方不给 bbox 时服务自己调 VLM 检测（凭据由 start.sh 从 .env 导出）。
+      # ---- 检测器：YOLO 优先，没检到再用 VLM 兜底（2026-11-20） ----
+      # 微调权重来自本机标注（~/grasp_labels），OBB 模型，carrot/potato/tomato 三类。
+      # 单帧 ~50–200 ms，比 VLM 的几秒快 1–2 个数量级；miss 的帧会被存到
+      # yolo_autolabel_dir，攒够了继续微调。改成 vlm 就完全回到大模型。
+      detector: auto
+      yolo_weights: ${HOME}/grasp_labels/runs/finetune/weights/best.pt
+      yolo_endpoint: http://127.0.0.1:8899
+      # YOLO 必须跑在 numpy<2 的 venv 里（本机 torch 是 numpy1.x 编译的），
+      # 服务没起时 grasp_geometry 会用这个解释器懒启动旁路服务。
+      yolo_python: ${HOME}/yolo_env/bin/python
+      yolo_server_script: ${HOME}/robot-deep_robotics-lynx_s10/scripts/yolo_server.py
+      yolo_conf: 0.35
+      yolo_imgsz: 640
+      yolo_autolabel_dir: ${HOME}/grasp_labels/autolabel
+      # 调用方不给 bbox 时服务自己检测（凭据由 start.sh 从 .env 导出）。
       vlm_base_url: ${VLM_BASE_URL}
       vlm_api_key: ${VLM_API_KEY}
       vlm_model: ${VLM_MODEL_VISION}

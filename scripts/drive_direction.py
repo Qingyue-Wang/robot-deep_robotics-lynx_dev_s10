@@ -92,6 +92,13 @@ class DirectionGovernor(Node):
             "reverse": (float(cfg.get("reverse_min_vel_x", -0.15)),
                         float(cfg.get("reverse_max_vel_x", 0.0))),
         }
+        # RotationShimController threshold: forward keeps the normal
+        # pre-rotation; reverse disables it with a value above pi so the
+        # primary DWB controller receives the path and backs up.
+        self.thresholds = {
+            "forward": float(cfg.get("forward_angular_dist_threshold", 0.30)),
+            "reverse": float(cfg.get("reverse_angular_dist_threshold", 3.15)),
+        }
 
         self._plan: Path | None = None
         self._plan_at = 0.0
@@ -109,10 +116,11 @@ class DirectionGovernor(Node):
         self.get_logger().info(
             "drive_direction ready: %s -> %s "
             "(lookahead=%.2fm, reverse>=%.0fdeg, forward<=%.0fdeg) "
-            "forward=%s reverse=%s"
+            "forward=%s reverse=%s shim_thresholds=%s"
             % (self.plan_topic, self.controller_node, self.lookahead_m,
                self.reverse_enter_deg, self.forward_enter_deg,
-               self.ranges["forward"], self.ranges["reverse"]))
+               self.ranges["forward"], self.ranges["reverse"],
+               self.thresholds))
 
     def _warn(self, key: str, message: str) -> None:
         now = time.monotonic()
@@ -202,6 +210,11 @@ class DirectionGovernor(Node):
                 value=ParameterValue(
                     type=ParameterType.PARAMETER_DOUBLE,
                     double_value=float(values[1]))),
+            Parameter(
+                name=f"{self.plugin}.angular_dist_threshold",
+                value=ParameterValue(
+                    type=ParameterType.PARAMETER_DOUBLE,
+                    double_value=float(self.thresholds[desired]))),
         ]
         self._pending = self._client.call_async(request)
         self._pending.add_done_callback(
@@ -224,33 +237,47 @@ class DirectionGovernor(Node):
         self._state = desired
         self._applied = desired
         self.get_logger().info(
-            "drive direction %s -> %s (%s) min_vel_x=%.2f max_vel_x=%.2f"
+            "drive direction %s -> %s (%s) min_vel_x=%.2f max_vel_x=%.2f "
+            "shim_angular_dist_threshold=%.2f"
             % (previous, desired, reason, self.ranges[desired][0],
-               self.ranges[desired][1]))
+               self.ranges[desired][1], self.thresholds[desired]))
 
     def restore_forward(self) -> None:
-        """Best-effort fail-safe: leave DWB forward-only on exit."""
-        if not self._client.service_is_ready():
+        """Best-effort fail-safe: leave DWB forward-only on exit.
+
+        SIGTERM may already have invalidated the rclpy context by the time the
+        finally block runs; every call here can raise in that state, so the
+        whole block is guarded and the failure is silent.
+        """
+        if not rclpy.ok():
             return
-        request = SetParameters.Request()
-        request.parameters = [
-            Parameter(
-                name=f"{self.plugin}.min_vel_x",
-                value=ParameterValue(
-                    type=ParameterType.PARAMETER_DOUBLE,
-                    double_value=float(self.ranges["forward"][0]))),
-            Parameter(
-                name=f"{self.plugin}.max_vel_x",
-                value=ParameterValue(
-                    type=ParameterType.PARAMETER_DOUBLE,
-                    double_value=float(self.ranges["forward"][1]))),
-        ]
-        future = self._client.call_async(request)
         try:
+            if not self._client.service_is_ready():
+                return
+            request = SetParameters.Request()
+            request.parameters = [
+                Parameter(
+                    name=f"{self.plugin}.min_vel_x",
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_DOUBLE,
+                        double_value=float(self.ranges["forward"][0]))),
+                Parameter(
+                    name=f"{self.plugin}.max_vel_x",
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_DOUBLE,
+                        double_value=float(self.ranges["forward"][1]))),
+                Parameter(
+                    name=f"{self.plugin}.angular_dist_threshold",
+                    value=ParameterValue(
+                        type=ParameterType.PARAMETER_DOUBLE,
+                        double_value=float(self.thresholds["forward"]))),
+            ]
+            future = self._client.call_async(request)
             rclpy.spin_until_future_complete(self, future, timeout_sec=1.0)
+            self.get_logger().info(
+                "drive_direction exit: restored forward range")
         except Exception:  # noqa: BLE001 — shutdown path
             return
-        self.get_logger().info("drive_direction exit: restored forward range")
 
 
 def main(argv: list[str] | None = None) -> int:
