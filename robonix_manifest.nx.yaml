@@ -184,7 +184,7 @@ primitive:
       arm_home_before_stand: false    # no Piper arm on this NX   # 兼容旧键
       arm_joint_command_topic: /arm/joint_command
       arm_joint_states_topic: /arm/joint_states_single
-      arm_home_deg: [0, 0, 0, 0, 25, 0]
+      arm_home_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]      # 与 piper_ctl.home_joints_deg / 技能回位一致
       arm_home_tol_deg: 3.0
       arm_home_timeout_s: 12.0
 
@@ -311,6 +311,10 @@ primitive:
       # 越大越不容易滑、也越抖）。这个值由 piper_ctl 在启动驱动节点时作为 ROS
       # 参数传入，改它要重启 piper_ctl（或整栈）才生效。
       gripper_effort: 2.0
+      # 「home」到底指哪个姿态：三处必须一致（piper_ctl home、lynx_quadruped 的
+      # arm-home guard、抓取技能抓住后的回位）。**全零**（臂平伸）是唯一实测可达的
+      # 目标：2026-11-20 试过 25°，在桌前会撞到桌面（J5 停在 31.6°、残差 6.6°）。
+      home_joints_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
       sentinel_timeout_s: 30.0
 
   # 有意的：**不**加 piper_description。它的 URDF 用裸 base_link/link1..6，而本机
@@ -509,6 +513,10 @@ skill:
       # 物体三围（人量，毫米）：算"握着时开口该多少"用，抓取几何不使用。
       object_size_mm: {length_mm: 40.0, width_mm: 40.0, height_mm: 30.0}
       vision_timeout_s: 180.0        # 必须 >= 服务的 locate_timeout_s
+      # 抓住之后把臂放回哪个姿态（第 8 步）。必须与 `lynx_quadruped.arm_home_deg`
+      # 和 `piper_ctl.home_joints_deg` 一模一样，否则抓完底盘 guard 会再补一次
+      # arm/home，臂白动一次。空 = 全零。
+      home_joints_deg: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
       observe_scan:
         enabled: true
         # 关闭「备用观察位」：只拍标称位和 anchors_deg 里的每一个位姿，不再围绕它们
@@ -523,7 +531,7 @@ skill:
           # central_ratio 0.53→0.58 / 0.50→0.56 / 0.63 / 0.23→0.68
           # 顺序按**相机高度从低到高**（pipeline._sort_poses_by_height 自动排，这里
           # 手写顺序只是方便人看）：home 位最低 → rec2 → 标称位 → rec1。
-          - [0.0, 0.0, 0.0, 0.0, 25.0, 0.0]               # home 位（= arm_home_deg）：相机 0.232 m，最低
+          - [0.0, 0.0, 0.0, 0.0, 25.0, 0.0]               # 折臂观察位（相机 0.232 m，最低；**不是** arm home）
           - [7.45, 62.86, -87.57, 4.53, 69.86, 7.80]      # rec1 不变：相机 0.664 m、视角 27.2°，看中远处
           - [7.45, 32.60, -53.59, 0.0, 59.35, 7.69]       # rec2（J2 52.6→32.6）：最近俯视位，原 J2 把抓取带顶到画面边缘
       # 几何预筛：换观察位/发 VLM 之前，先用 FK 把各观察位的关节角算成相机位姿，再看工作区
