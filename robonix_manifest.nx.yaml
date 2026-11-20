@@ -367,7 +367,10 @@ service:
       use_sim_time: false
       map_id: aiit_27f            # ignored in mapping mode
       map_mode: localization          # fresh map: this NX has no saved map yet (localization needs an existing rtabmap.db)
-      webui_scan_topic: /scanner/scan
+      # WebUI overlay only: draw the front+rear merged 360-degree scan on the
+      # map in real time. The persisted RTAB-Map occupancy grid and
+      # MAPPING_SCAN_TOPIC stay front-only (/scanner/scan, lynx_lidar).
+      webui_scan_topic: /scanner/scan_nav
       # navigation_odom_bridge 保持 OFF：外部里程计模式下启用它会与
       # sensor_providers.odom 冲突，launch 会直接报错。
       navigation_odom_bridge: false

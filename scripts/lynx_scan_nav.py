@@ -131,6 +131,22 @@ class NavScanMerger(Node):
             "publish_rate", 10.0).value)
         self.max_cloud_age_s = float(self.declare_parameter(
             "max_cloud_age_s", 0.6).value)
+        # Rectangular self-filter in base_link. The front/rear Airy are mounted
+        # on the body and see their own upper legs/body at 0.36-0.6 m; the old
+        # circular range_min alone left those returns in the costmap, which
+        # made the planner see the robot as surrounded and replan every cycle.
+        # 0.68 x 0.46 is the gait-aware envelope from rtabmap_params.yaml.
+        self.self_filter_length = float(self.declare_parameter(
+            "self_filter_length", 0.68).value)
+        self.self_filter_width = float(self.declare_parameter(
+            "self_filter_width", 0.46).value)
+        self.self_filter_margin = float(self.declare_parameter(
+            "self_filter_margin", 0.15).value)
+        self._self_filter_half_length = max(
+            0.0, self.self_filter_length / 2.0 + self.self_filter_margin)
+        self._self_filter_half_width = max(
+            0.0, self.self_filter_width / 2.0 + self.self_filter_margin)
+        self._self_filter_log_at = 0.0
 
         self._front: PointCloud2 | None = None
         self._rear: PointCloud2 | None = None
@@ -149,10 +165,13 @@ class NavScanMerger(Node):
         self.create_timer(1.0 / max(self.rate_hz, 1.0), self._tick)
         self.get_logger().info(
             "lynx_scan_nav ready: %s + %s -> %s "
-            "(height %.2f..%.2f m, range %.2f..%.2f m, %d bins, %.1f Hz)"
+            "(height %.2f..%.2f m, range %.2f..%.2f m, %d bins, %.1f Hz, "
+            "self_filter %.2f x %.2f m)"
             % (self.front_topic, self.rear_topic, self.output_topic,
                self.height_min, self.height_max, self.range_min,
-               self.range_max, self.bins, self.rate_hz))
+               self.range_max, self.bins, self.rate_hz,
+               2.0 * self._self_filter_half_length,
+               2.0 * self._self_filter_half_width))
 
     def _warn(self, key: str, message: str) -> None:
         now = time.monotonic()
@@ -215,6 +234,25 @@ class NavScanMerger(Node):
             points = points[mask]
             if points.size == 0:
                 continue
+            if (self._self_filter_half_length > 0.0 and
+                    self._self_filter_half_width > 0.0):
+                inside = (
+                    (np.abs(points[:, 0]) <= self._self_filter_half_length) &
+                    (np.abs(points[:, 1]) <= self._self_filter_half_width))
+                removed = int(inside.sum())
+                if removed:
+                    now_m = time.monotonic()
+                    if now_m - self._self_filter_log_at >= 5.0:
+                        self._self_filter_log_at = now_m
+                        self.get_logger().info(
+                            "self-filter: dropped %d near points inside "
+                            "%.2f x %.2f m"
+                            % (removed,
+                               2.0 * self._self_filter_half_length,
+                               2.0 * self._self_filter_half_width))
+                    points = points[~inside]
+                if points.size == 0:
+                    continue
             distance = np.hypot(points[:, 0], points[:, 1])
             mask = ((distance >= self.range_min) &
                     (distance <= self.range_max))
