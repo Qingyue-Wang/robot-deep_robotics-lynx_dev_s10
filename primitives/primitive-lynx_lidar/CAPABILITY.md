@@ -10,10 +10,15 @@ S10 装有两台 RoboSense Airy 雷达，由 NX 上的 `rslidar_sdk`（`~/rslida
 | 话题 | frame | 说明 |
 |---|---|---|
 | `/airy_201/points` | `airy_201` | 前雷达 — 竖装（pitch +90°），扫描面为竖直圆盘 |
-| `/airy_202/points` | `airy_202` | 后雷达 — 平装（yaw 180°），扫描面为水平 360° 圆盘 |
+| `/airy_202/points` | `airy_202` | 后雷达 — 竖装朝后（同一支架绕 base_link Z 转 180°），覆盖后半空间 |
 | `/LIDAR/POINTS` | — | 机器人 LIO 融合点云，仅感知栈运行时发布（备选） |
 
 本原语确认流存活后，把其中一个话题声明为 `robonix/primitive/lidar/lidar3d`。
+
+> 后雷达原始点云由部署侧 `scripts/lynx_scan_nav.py` 消费，投影成
+> `/scanner/scan_nav` 给 nav2 costmap，并在 `base_link` 下用矩形自过滤
+> （0.68 x 0.46 m 步态包络 + 余量）去掉机器人自身的腿/机身；mapping 仍只用
+> 前雷达 `lidar3d`，不写后雷达。
 
 ## 接口
 
@@ -32,7 +37,7 @@ S10 装有两台 RoboSense Airy 雷达，由 NX 上的 `rslidar_sdk`（`~/rslida
 
 | key | default | 含义 |
 |-----|---------|------|
-| `points_topic` | `/airy_201/points` | 源点云话题（前雷达，竖直扫描；`/airy_202/points` 为后雷达，水平扫描） |
+| `points_topic` | `/airy_201/points` | 源点云话题（前雷达，竖装朝前；`/airy_202/points` 为后雷达，竖装朝后） |
 | `qos` | `reliable` | 声明的 QoS（rslidar_sdk 为 RELIABLE） |
 | `sentinel_timeout_s` | `15.0` | 等待首帧点云的超时 |
 

@@ -2,7 +2,10 @@
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
-MANIFEST="${ROBONIX_MANIFEST:-$DEPLOY_DIR/robonix_manifest.yaml}"
+# Default to the same machine-local manifest start.sh boots; stop.sh used to
+# fall back to the generic robonix_manifest.yaml and could tear down a
+# different component set than the one actually running.
+MANIFEST="${ROBONIX_MANIFEST:-$DEPLOY_DIR/robonix_manifest.nx.yaml}"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 export ROBONIX_DEPLOY_DIR="$DEPLOY_DIR"
 

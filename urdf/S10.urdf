@@ -998,9 +998,15 @@
   </joint>
   <link name = "back_lidar_link"/>
   <joint name="back_lidar_joint" type="fixed">
+    <!-- Rear Airy: same vertical bracket as the front, rotated 180 deg about
+         base_link Z so the emitting face points backward. This must match the
+         base_link -> airy_202 static TF in
+         primitives/primitive-lynx_lidar/scripts/start.sh. The old "0 0 pi"
+         horizontal value was wrong; the live cloud's floor sits at z ~= -0.45
+         only with this roll/pitch. -->
     <origin
       xyz="-0.22341 0.0 -0.0001"
-      rpy="0 0 3.14159" />
+      rpy="3.14159 -1.5708 3.14159" />
     <parent
       link="base_link" />
     <child

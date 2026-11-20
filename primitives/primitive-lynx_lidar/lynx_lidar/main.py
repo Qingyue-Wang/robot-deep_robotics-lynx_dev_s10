@@ -6,7 +6,7 @@ The S10 carries two RoboSense Airy lidars, driven by ``rslidar_sdk`` on the NX
 (``~/rslidar_ws``). That SDK already publishes standard ``sensor_msgs/PointCloud2``:
 
     /airy_201/points  (frame ``airy_201``) — front lidar, RELIABLE, VERTICAL scan (default source)
-    /airy_202/points  (frame ``airy_202``) — back lidar,  RELIABLE, HORIZONTAL 360-deg scan
+    /airy_202/points  (frame ``airy_202``) — back lidar,  RELIABLE, VERTICAL mount facing backward
 
 The robot's own ``/LIDAR/POINTS`` is the LIO-fused cloud and only publishes
 while the onboard perception stack runs; it is the alternative when available.

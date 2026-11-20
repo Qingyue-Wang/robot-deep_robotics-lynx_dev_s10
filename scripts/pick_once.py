@@ -24,7 +24,29 @@ import json
 import sys
 import time
 
-sys.path.insert(0, "/tmp/pbgen")
+PBGEN = "/tmp/pbgen"
+
+
+def _ensure_protos() -> None:
+    """把 robonix 的 proto 编译到 /tmp/pbgen（/tmp 会被清，所以每次检查一下）。"""
+    import os
+    import subprocess
+    if os.path.isdir(PBGEN) and os.path.exists(os.path.join(PBGEN, "pilot_pb2.py")):
+        return
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    proto = os.path.join(root, "rbnx-boot/cache/service-map-rbnx/rbnx-build/proto-staging")
+    if not os.path.isdir(proto):
+        raise SystemExit("找不到 proto 目录：%s（栈没 build 过？）" % proto)
+    os.makedirs(PBGEN, exist_ok=True)
+    files = [os.path.join(proto, f) for f in sorted(os.listdir(proto)) if f.endswith(".proto")]
+    print("[pick_once] 编译 %d 个 proto → %s" % (len(files), PBGEN), flush=True)
+    subprocess.run([sys.executable, "-m", "grpc_tools.protoc", "-I", proto,
+                    "--python_out=" + PBGEN, "--grpc_python_out=" + PBGEN] + files,
+                   check=True)
+
+
+_ensure_protos()
+sys.path.insert(0, PBGEN)
 
 import grpc                                        # noqa: E402
 

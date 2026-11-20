@@ -3,6 +3,10 @@ set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 MANIFEST="${ROBONIX_MANIFEST:-$DEPLOY_DIR/robonix_manifest.nx.yaml}"
+# Export so stop.sh (called below and by the user later) tears down the SAME
+# manifest this boot uses. Without this, stop.sh fell back to the generic
+# robonix_manifest.yaml and could leave components/orphans behind.
+export ROBONIX_MANIFEST="$MANIFEST"
 LOG_DIR="$DEPLOY_DIR/logs"
 mkdir -p "$LOG_DIR"
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
@@ -108,17 +112,23 @@ fi
 #   drive_direction — plan-angle -> DWB forward/reverse velocity range
 # Both wait for the driver/nav2 to appear, so starting them before `rbnx boot`
 # is safe. start.sh's cleanup() and stop.sh's explicit patterns reap them.
-if [[ -f "$DEPLOY_DIR/scripts/lynx_scan_nav.py" ]]; then
-  python3 "$DEPLOY_DIR/scripts/lynx_scan_nav.py" --manifest "$MANIFEST" \
-    >>"$LOG_DIR/lynx_scan_nav.log" 2>&1 &
-  NAV_EXTRAS_PIDS+=($!)
-fi
-if [[ -f "$DEPLOY_DIR/scripts/drive_direction.py" && \
-      -f "$DEPLOY_DIR/config/drive_direction.yaml" ]]; then
-  python3 "$DEPLOY_DIR/scripts/drive_direction.py" --manifest "$MANIFEST" \
-    --config "$DEPLOY_DIR/config/drive_direction.yaml" \
-    >>"$LOG_DIR/drive_direction.log" 2>&1 &
-  NAV_EXTRAS_PIDS+=($!)
+# Set LYNX_NAV_EXTRAS=0 for a mapping-only run (scripts/start_mapping.sh does
+# this): neither processes anything useful without nav2.
+if [[ "${LYNX_NAV_EXTRAS:-1}" == "0" ]]; then
+  echo "[start] nav extras: disabled (LYNX_NAV_EXTRAS=0)"
+else
+  if [[ -f "$DEPLOY_DIR/scripts/lynx_scan_nav.py" ]]; then
+    python3 "$DEPLOY_DIR/scripts/lynx_scan_nav.py" --manifest "$MANIFEST" \
+      >>"$LOG_DIR/lynx_scan_nav.log" 2>&1 &
+    NAV_EXTRAS_PIDS+=($!)
+  fi
+  if [[ -f "$DEPLOY_DIR/scripts/drive_direction.py" && \
+        -f "$DEPLOY_DIR/config/drive_direction.yaml" ]]; then
+    python3 "$DEPLOY_DIR/scripts/drive_direction.py" --manifest "$MANIFEST" \
+      --config "$DEPLOY_DIR/config/drive_direction.yaml" \
+      >>"$LOG_DIR/drive_direction.log" 2>&1 &
+    NAV_EXTRAS_PIDS+=($!)
+  fi
 fi
 if ((${#NAV_EXTRAS_PIDS[@]})); then
   echo "[start] nav extras: ${NAV_EXTRAS_PIDS[*]} (logs: $LOG_DIR)"

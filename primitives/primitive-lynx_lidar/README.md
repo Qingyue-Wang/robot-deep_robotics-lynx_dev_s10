@@ -7,11 +7,17 @@ publishing standard `sensor_msgs/PointCloud2`:
 | topic | frame | notes |
 |-------|-------|-------|
 | `/airy_201/points` | `airy_201` | front lidar — VERTICAL scan (pitched +90°) (default source) |
-| `/airy_202/points` | `airy_202` | back lidar — HORIZONTAL 360° scan |
+| `/airy_202/points` | `airy_202` | back lidar — VERTICAL mount facing backward |
 | `/LIDAR/POINTS` | — | robot LIO-fused cloud (only when perception stack runs) |
 
 Exposed Robonix capability: `robonix/primitive/lidar/lidar3d` (one lidar,
 configurable).
+
+The rear cloud is not mapped. The deployment's `scripts/lynx_scan_nav.py`
+projects both clouds into `/scanner/scan_nav` for nav2 and applies a
+`base_link` rectangular self-filter (0.68 x 0.46 m gait envelope + margin) so
+the robot's own legs/body are not marked as obstacles. RTAB-Map keeps using
+the front `lidar3d`.
 
 ## Build & run
 

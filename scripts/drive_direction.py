@@ -30,6 +30,7 @@ import time
 
 import rclpy
 import yaml
+from action_msgs.msg import GoalStatusArray
 from nav_msgs.msg import Path
 from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
@@ -99,26 +100,40 @@ class DirectionGovernor(Node):
             "forward": float(cfg.get("forward_angular_dist_threshold", 0.30)),
             "reverse": float(cfg.get("reverse_angular_dist_threshold", 3.15)),
         }
+        self.mode_hold_s = float(cfg.get("mode_hold_s", 3.0))
+        # Inside this radius to the plan's last pose the shim is forced off so
+        # DWB's RotateToGoal is the only thing rotating the robot to goal yaw.
+        self.near_goal_m = float(cfg.get("near_goal_m", 0.35))
+        self.goal_status_topic = str(
+            cfg.get("goal_status_topic", "/navigate_to_pose/_action/status"))
 
         self._plan: Path | None = None
         self._plan_at = 0.0
+        self._plan_pending = False
+        self._goal_active = False
         self._state = "forward"       # direction currently applied to DWB
         self._applied: str | None = None
+        self._applied_shim: float | None = None
+        self._last_mode_change = 0.0
         self._pending = None
         self._warn_at: dict[str, float] = {}
 
         self._tf_buffer = Buffer()
         self._tf_listener = TransformListener(self._tf_buffer, self)
         self.create_subscription(Path, self.plan_topic, self._on_plan, 10)
+        self.create_subscription(
+            GoalStatusArray, self.goal_status_topic, self._on_goal_status, 10)
         self._client = self.create_client(
             SetParameters, f"{self.controller_node}/set_parameters")
         self.create_timer(1.0 / max(self.rate_hz, 1.0), self._tick)
         self.get_logger().info(
             "drive_direction ready: %s -> %s "
-            "(lookahead=%.2fm, reverse>=%.0fdeg, forward<=%.0fdeg) "
+            "(lookahead=%.2fm, reverse>=%.0fdeg, forward<=%.0fdeg, "
+            "mode_hold=%.1fs, near_goal=%.2fm) "
             "forward=%s reverse=%s shim_thresholds=%s"
             % (self.plan_topic, self.controller_node, self.lookahead_m,
                self.reverse_enter_deg, self.forward_enter_deg,
+               self.mode_hold_s, self.near_goal_m,
                self.ranges["forward"], self.ranges["reverse"],
                self.thresholds))
 
@@ -132,6 +147,24 @@ class DirectionGovernor(Node):
         if msg.poses:
             self._plan = msg
             self._plan_at = time.monotonic()
+            # Evaluate the direction once per path, not every 10 Hz tick.
+            self._plan_pending = True
+
+    def _on_goal_status(self, msg: GoalStatusArray) -> None:
+        # STATUS_ACCEPTED=1, STATUS_EXECUTING=2. While a navigation goal is
+        # active, a stale /plan must NOT fail-safe back to forward: at the goal
+        # the plan stops updating, and re-enabling forward + shim would fight
+        # RotateToGoal and make the robot spin on the spot.
+        active = any(status.status in (1, 2) for status in msg.status_list)
+        if active != self._goal_active:
+            self._goal_active = active
+            self.get_logger().info(f"navigation goal active: {active}")
+
+    def _near_goal(self, robot: tuple[float, float, float] | None) -> bool:
+        if robot is None or self._plan is None or not self._plan.poses:
+            return False
+        last = self._plan.poses[-1].pose.position
+        return math.hypot(last.x - robot[0], last.y - robot[1]) <= self.near_goal_m
 
     def _robot_pose(self, frame: str) -> tuple[float, float, float] | None:
         if not frame:
@@ -149,49 +182,132 @@ class DirectionGovernor(Node):
         return (translation.x, translation.y, yaw)
 
     def _path_angle(self, robot: tuple[float, float, float]) -> float | None:
+        """Angle from the robot heading to the path, sampled AHEAD of the robot.
+
+        Project the robot onto the polyline first, then walk ``lookahead_m``
+        along the path from that projection. The previous version started at
+        the plan's first pose and took the first pose farther than the
+        lookahead, so once the robot moved past the start of an older plan
+        (the BT reuses a path for up to 10 s) that point sat BEHIND the robot,
+        reported ~180 deg, and flipped this node forward/reverse every second
+        (2026-11-20 14:42 run: angles 17-176 deg, reverse in 35% of cycles).
+        """
         if self._plan is None or not self._plan.poses:
             return None
         rx, ry, ryaw = robot
-        target = None
-        for pose in self._plan.poses:
-            dx = pose.pose.position.x - rx
-            dy = pose.pose.position.y - ry
-            if math.hypot(dx, dy) >= self.lookahead_m:
-                target = (dx, dy)
-                break
-        if target is None:
-            last = self._plan.poses[-1].pose.position
-            target = (last.x - rx, last.y - ry)
-        if math.hypot(*target) < self.min_target_m:
+        points = [
+            (pose.pose.position.x, pose.pose.position.y)
+            for pose in self._plan.poses
+        ]
+        if len(points) == 1:
+            target = points[0]
+        else:
+            best_d2 = math.inf
+            best_i = 0
+            best_t = 0.0
+            for i in range(len(points) - 1):
+                ax, ay = points[i]
+                bx, by = points[i + 1]
+                vx, vy = bx - ax, by - ay
+                seg2 = vx * vx + vy * vy
+                if seg2 <= 1e-12:
+                    t = 0.0
+                else:
+                    t = ((rx - ax) * vx + (ry - ay) * vy) / seg2
+                t = max(0.0, min(1.0, t))
+                px, py = ax + t * vx, ay + t * vy
+                d2 = (px - rx) ** 2 + (py - ry) ** 2
+                if d2 < best_d2:
+                    best_d2 = d2
+                    best_i = i
+                    best_t = t
+            ax, ay = points[best_i]
+            bx, by = points[best_i + 1]
+            cx = ax + best_t * (bx - ax)
+            cy = ay + best_t * (by - ay)
+            remaining = self.lookahead_m
+            target = None
+            i = best_i
+            while i < len(points) - 1:
+                nx, ny = points[i + 1]
+                step = math.hypot(nx - cx, ny - cy)
+                if step >= remaining:
+                    ratio = 0.0 if step <= 1e-9 else remaining / step
+                    target = (cx + (nx - cx) * ratio, cy + (ny - cy) * ratio)
+                    break
+                remaining -= step
+                cx, cy = nx, ny
+                i += 1
+            if target is None:
+                target = points[-1]
+        dx = target[0] - rx
+        dy = target[1] - ry
+        if math.hypot(dx, dy) < self.min_target_m:
             return None
-        return _wrap(math.atan2(target[1], target[0]) - ryaw)
+        return _wrap(math.atan2(dy, dx) - ryaw)
 
     def _tick(self) -> None:
         if self._pending is not None:
             return
-        if (self._plan is None or
-                time.monotonic() - self._plan_at > self.plan_timeout_s):
-            self._apply("forward", "no fresh plan")
+        now = time.monotonic()
+        fresh = (self._plan is not None and
+                 now - self._plan_at <= self.plan_timeout_s)
+
+        if not fresh:
+            if self._goal_active:
+                # The plan stops updating at the goal. Hold the direction and
+                # force the shim off near the goal so RotateToGoal owns the
+                # final yaw.
+                robot = None
+                if self._plan is not None:
+                    robot = self._robot_pose(self._plan.header.frame_id)
+                self._apply(
+                    self._state, "goal active, stale plan",
+                    shim_override=3.15 if self._near_goal(robot) else None)
+            else:
+                self._apply("forward", "no fresh plan", force=True)
             return
+
         robot = self._robot_pose(self._plan.header.frame_id)
         if robot is None:
-            self._apply("forward", "no robot pose")
+            self._apply("forward", "no robot pose", force=True)
             return
+        near = self._near_goal(robot)
+
+        if not self._plan_pending:
+            # Between 1 Hz plans only the near-goal shim gate can change.
+            self._apply(self._state, "near-goal gate",
+                        shim_override=3.15 if near else None)
+            return
+
+        self._plan_pending = False
         angle = self._path_angle(robot)
         if angle is None:
-            # Short path or already at the goal: keep the last direction. The
-            # final in-place rotation is DWB's RotateToGoal critic.
+            self._apply(self._state, "short path / at goal",
+                        shim_override=3.15 if near else None)
             return
+
         degrees = math.degrees(abs(angle))
         desired = self._state
         if self._state == "forward" and degrees >= self.reverse_enter_deg:
             desired = "reverse"
         elif self._state == "reverse" and degrees <= self.forward_enter_deg:
             desired = "forward"
-        self._apply(desired, f"angle={degrees:.1f}deg")
+        if (desired != self._state and
+                now - self._last_mode_change < self.mode_hold_s):
+            desired = self._state
+        self._apply(desired, f"angle={degrees:.1f}deg",
+                    shim_override=3.15 if near else None)
 
-    def _apply(self, desired: str, reason: str) -> None:
-        if desired == self._state and self._applied == desired:
+    def _apply(self, desired: str, reason: str, force: bool = False,
+               shim_override: float | None = None) -> None:
+        shim = (self.thresholds[desired] if shim_override is None
+                else float(shim_override))
+        if (desired == self._state and self._applied == desired and
+                self._applied_shim == shim):
+            return
+        if (not force and desired != self._state and
+                time.monotonic() - self._last_mode_change < self.mode_hold_s):
             return
         if not self._client.service_is_ready():
             self._warn("service",
@@ -214,13 +330,13 @@ class DirectionGovernor(Node):
                 name=f"{self.plugin}.angular_dist_threshold",
                 value=ParameterValue(
                     type=ParameterType.PARAMETER_DOUBLE,
-                    double_value=float(self.thresholds[desired]))),
+                    double_value=shim)),
         ]
         self._pending = self._client.call_async(request)
         self._pending.add_done_callback(
-            lambda future: self._on_set(future, desired, reason))
+            lambda future: self._on_set(future, desired, reason, shim))
 
-    def _on_set(self, future, desired: str, reason: str) -> None:
+    def _on_set(self, future, desired: str, reason: str, shim: float) -> None:
         self._pending = None
         try:
             response = future.result()
@@ -236,11 +352,14 @@ class DirectionGovernor(Node):
         previous = self._state
         self._state = desired
         self._applied = desired
+        self._applied_shim = shim
+        if desired != previous:
+            self._last_mode_change = time.monotonic()
         self.get_logger().info(
             "drive direction %s -> %s (%s) min_vel_x=%.2f max_vel_x=%.2f "
             "shim_angular_dist_threshold=%.2f"
             % (previous, desired, reason, self.ranges[desired][0],
-               self.ranges[desired][1], self.thresholds[desired]))
+               self.ranges[desired][1], shim))
 
     def restore_forward(self) -> None:
         """Best-effort fail-safe: leave DWB forward-only on exit.

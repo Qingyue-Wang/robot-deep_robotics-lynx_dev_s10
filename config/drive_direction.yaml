@@ -47,10 +47,20 @@ forward_angular_dist_threshold: 0.30
 reverse_angular_dist_threshold: 3.15
 
 rate_hz: 10.0
-# No fresh /plan for this long -> return to forward-only.
-# /plan is only republished when the planner produces a path (observed gaps
-# of 3-9 s on the S10); a 2 s timeout made the governor flip forward/reverse
-# every 2 s, which in turn made DWB alternate the yaw sign and the robot
-# oscillate in place instead of rotating. Keep the last direction through a
-# normal planning gap; a goal that has ended still falls back to forward.
+# No fresh /plan for this long -> return to forward-only (only when no
+# navigation goal is active; at the goal the direction is held).
 plan_timeout_s: 10.0
+
+# Minimum time between forward/reverse mode changes. The direction is also
+# evaluated only when a new /plan arrives, so the 10 Hz tick cannot make the
+# mode flap around the 90-degree boundary while the shim rotates the robot.
+mode_hold_s: 3.0
+
+# Within this distance to the plan's last pose the RotationShimController is
+# forced off (threshold > pi) so DWB's RotateToGoal is the only thing rotating
+# the robot to the goal yaw. Without this the shim and RotateToGoal can fight
+# and the robot spins on the spot at the goal.
+near_goal_m: 0.35
+
+# Goal lifecycle used to keep the direction while /plan is stale at the goal.
+goal_status_topic: /navigate_to_pose/_action/status
