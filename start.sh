@@ -109,26 +109,30 @@ fi
 
 # Navigation extras:
 #   lynx_scan_nav   — front+rear Airy clouds -> /scanner/scan_nav (costmaps)
+#                     and /scanner/cloud_merged (the mapping input)
 #   drive_direction — plan-angle -> DWB forward/reverse velocity range
 # Both wait for the driver/nav2 to appear, so starting them before `rbnx boot`
 # is safe. start.sh's cleanup() and stop.sh's explicit patterns reap them.
-# Set LYNX_NAV_EXTRAS=0 for a mapping-only run (scripts/start_mapping.sh does
-# this): neither processes anything useful without nav2.
-if [[ "${LYNX_NAV_EXTRAS:-1}" == "0" ]]; then
-  echo "[start] nav extras: disabled (LYNX_NAV_EXTRAS=0)"
-else
-  if [[ -f "$DEPLOY_DIR/scripts/lynx_scan_nav.py" ]]; then
-    python3 "$DEPLOY_DIR/scripts/lynx_scan_nav.py" --manifest "$MANIFEST" \
-      >>"$LOG_DIR/lynx_scan_nav.log" 2>&1 &
-    NAV_EXTRAS_PIDS+=($!)
-  fi
-  if [[ -f "$DEPLOY_DIR/scripts/drive_direction.py" && \
-        -f "$DEPLOY_DIR/config/drive_direction.yaml" ]]; then
-    python3 "$DEPLOY_DIR/scripts/drive_direction.py" --manifest "$MANIFEST" \
-      --config "$DEPLOY_DIR/config/drive_direction.yaml" \
-      >>"$LOG_DIR/drive_direction.log" 2>&1 &
-    NAV_EXTRAS_PIDS+=($!)
-  fi
+# LYNX_NAV_EXTRAS=0 disables both (mapping-only, no nav2).
+# LYNX_SCAN_MERGER=1 keeps only lynx_scan_nav, which the mapping-only profile
+# needs for its merged 3D cloud and merged 2D scan.
+start_scan_merger=0
+if [[ "${LYNX_NAV_EXTRAS:-1}" != "0" || "${LYNX_SCAN_MERGER:-0}" == "1" ]]; then
+  start_scan_merger=1
+fi
+if [[ "$start_scan_merger" == "1" && \
+      -f "$DEPLOY_DIR/scripts/lynx_scan_nav.py" ]]; then
+  python3 "$DEPLOY_DIR/scripts/lynx_scan_nav.py" --manifest "$MANIFEST" \
+    >>"$LOG_DIR/lynx_scan_nav.log" 2>&1 &
+  NAV_EXTRAS_PIDS+=($!)
+fi
+if [[ "${LYNX_NAV_EXTRAS:-1}" != "0" && \
+      -f "$DEPLOY_DIR/scripts/drive_direction.py" && \
+      -f "$DEPLOY_DIR/config/drive_direction.yaml" ]]; then
+  python3 "$DEPLOY_DIR/scripts/drive_direction.py" --manifest "$MANIFEST" \
+    --config "$DEPLOY_DIR/config/drive_direction.yaml" \
+    >>"$LOG_DIR/drive_direction.log" 2>&1 &
+  NAV_EXTRAS_PIDS+=($!)
 fi
 if ((${#NAV_EXTRAS_PIDS[@]})); then
   echo "[start] nav extras: ${NAV_EXTRAS_PIDS[*]} (logs: $LOG_DIR)"

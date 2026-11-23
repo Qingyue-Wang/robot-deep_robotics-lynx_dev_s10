@@ -12,9 +12,11 @@ set -euo pipefail
 DEPLOY_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 export ROBONIX_MANIFEST="$DEPLOY_DIR/robonix_manifest.mapping.yaml"
-# Default off: neither lynx_scan_nav nor drive_direction is useful without
-# nav2. Set LYNX_NAV_EXTRAS=1 to keep the merged /scanner/scan_nav overlay
-# in the mapping web UI (costs ~1 % CPU and the rear cloud subscription).
+# Default off: drive_direction is useless without nav2. lynx_scan_nav.py stays
+# on (LYNX_SCAN_MERGER) because the mapping profile consumes its merged
+# front+rear 3D cloud (/scanner/cloud_merged) and merged 2D scan
+# (/scanner/scan_nav). Set LYNX_NAV_EXTRAS=1 to also start drive_direction.
 export LYNX_NAV_EXTRAS="${LYNX_NAV_EXTRAS:-0}"
+export LYNX_SCAN_MERGER="${LYNX_SCAN_MERGER:-1}"
 
 exec "$DEPLOY_DIR/start.sh" "$@"

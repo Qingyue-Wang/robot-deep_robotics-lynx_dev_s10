@@ -12,19 +12,21 @@
 # in system: (they are light); drop them too if you want an even smaller stack.
 #
 # Notes:
-#   * nav2 is dropped, so /scanner/scan has no publisher; nav extras are off by
-#     default, so /scanner/scan_nav is absent too. Mapping itself still runs
-#     (the web UI falls back to the lidar cloud), but the 2-D scan overlay and
-#     automatic relocalization (MAPPING_SCAN_TOPIC) are unavailable. Run with
-#     LYNX_NAV_EXTRAS=1 to keep the merged-scan overlay, or use the full
-#     .nx.yaml for localization-against-a-saved-map work.
+#   * nav2 is dropped, so /scanner/scan has no publisher. scripts/start_mapping.sh
+#     still runs lynx_scan_nav.py (LYNX_SCAN_MERGER=1), which produces both
+#     products this profile consumes:
+#       /scanner/cloud_merged   merged front+rear 3D cloud -> mapping lidar3d
+#       /scanner/scan_nav       merged 2D scan -> web UI overlay
+#     Automatic relocalization (MAPPING_SCAN_TOPIC=/scanner/scan) remains
+#     unavailable without nav2.
 #   * map_mode below is inherited as "localization" (the saved map aiit_27f
 #     exists). To build a genuinely new map, change it to "mapping".
-#   * The rear Airy still runs (one rslidar_sdk_node drives both) but has no
-#     subscriber in this profile, so it costs almost nothing at DDS level.
+#   * Both Airy lidars now feed mapping through the merged cloud; the rear is no
+#     longer an idle publisher.
 #
 # Usage:
-#   ROBONIX_MANIFEST=$PWD/robonix_manifest.mapping.yaml LYNX_NAV_EXTRAS=0 ./start.sh
+#   ROBONIX_MANIFEST=$PWD/robonix_manifest.mapping.yaml \
+#     LYNX_NAV_EXTRAS=0 LYNX_SCAN_MERGER=1 ./start.sh
 #   (or simply: ./scripts/start_mapping.sh)
 
 manifestVersion: 1
@@ -216,21 +218,19 @@ primitive:
     # ports. The cached remote package is not modified by this repo.
     path: ./primitives/primitive-lynx_lidar
     config:
-      # FRONT Airy lidar (airy_201): VERTICAL mount (pitch +90°), scans a vertical
-      # disc (floor ↔ ceiling). Unlike the BACK lidar's horizontal 360° scan, this
-      # geometry gives poor forward coverage for 2D mapping. It also defeats
-      # RTAB-Map's normal-based ground segmentation (see Grid/NormalsSegmentation
-      # in rtabmap_params.yaml) since there is no local floor PATCH to estimate a
-      # normal from, only a thin scan line — ground filtering there now falls back
-      # to plain height-thresholding instead.
-      points_topic: /airy_201/points
-      # 声明 best_effort：rslidar_sdk 的发布端仍是 RELIABLE，但 BEST_EFFORT 订阅者
-      # 不产生 DDS 可靠流控（ack/back-pressure）。scene 等消费端会按这里的声明
-      # 建立订阅；若声明 reliable，scene（回调跟不上 21Hz×26k 点云）会靠流控
-      # 把整条 /airy_201/points 压慢，驱动内部队列堆积、时间戳越来越旧，
-      # FAST-LIO/rtabmap 随之失去实时数据。与 IMU 的 qos 处理同理。
+      # Dual-lidar mapping input: scripts/lynx_scan_nav.py merges the front
+      # (/airy_201/points) and rear (/airy_202/points) Airy clouds into one
+      # PointCloud2 in base_link and publishes /scanner/cloud_merged at 10 Hz.
+      # The merger starts before `rbnx boot` (LYNX_SCAN_MERGER=1 in
+      # scripts/start_mapping.sh), so this primitive sees the merged topic as
+      # soon as the rslidar driver produces points. FAST-LIO still consumes
+      # the raw front cloud directly.
+      points_topic: /scanner/cloud_merged
+      # BEST_EFFORT: no DDS reliable back-pressure on a ~0.36 MB/frame merged
+      # stream; the merger publishes sensor-data QoS and the mapping service
+      # subscribes best-effort (same reasoning as the raw clouds above).
       qos: best_effort
-      sentinel_timeout_s: 15.0          # stays Deferred until points actually flow
+      sentinel_timeout_s: 30.0          # rslidar startup + first merged frame
 
   - name: lynx_fastlio
     path: ./primitives/primitive-lynx_fastlio
@@ -277,20 +277,17 @@ service:
       use_sim_time: false
       map_id: aiit_27f            # ignored in mapping mode
       map_mode: localization          # fresh map: this NX has no saved map yet (localization needs an existing rtabmap.db)
-      # WebUI overlay only: the full .nx.yaml draws the front+rear merged scan.
-      # In this profile nav extras are off by default, so this topic has no
-      # publisher and the web UI falls back to the lidar cloud.
+      # WebUI overlay only: provided by lynx_scan_nav.py (LYNX_SCAN_MERGER=1),
+      # which also publishes the merged 3D cloud used as mapping's lidar3d.
       webui_scan_topic: /scanner/scan_nav
       # navigation_odom_bridge 保持 OFF：外部里程计模式下启用它会与
       # sensor_providers.odom 冲突，launch 会直接报错。
       navigation_odom_bridge: false
-      # The Airy was rebuilt with POINT_TYPE=XYZIRT, so each point carries a
-      # lidar-clock timestamp. FAST-LIO uses those timestamps for its own
-      # motion undistortion; RTAB-Map still consumes the raw cloud for the
-      # occupancy grid, where a moving 10 Hz scan smears unless deskewed.
-      # Keep deskew off for now: the deskew node publishes RELIABLE while
-      # rtabmap subscribes BEST_EFFORT, which dropped the whole cloud
-      # (complete data loss). Re-enable after fixing that QoS mismatch.
+      # FAST-LIO consumes the raw XYZIRT front cloud and uses its per-point
+      # timestamps for motion undistortion. RTAB-Map now consumes the merged
+      # XYZ cloud (no per-point time), so lidar-side deskewing is not possible;
+      # keep this off. (The old deskew node also published RELIABLE while
+      # rtabmap subscribed BEST_EFFORT, which dropped the whole cloud.)
       deskew_lidar: false
       # LOOP-CLOSURE EXPERIMENT: same as rtabmap_params.yaml with
       # ProximityPathMaxNeighbors 1->5 and Icp/MaxCorrespondenceDistance 0.2->0.4
@@ -298,6 +295,8 @@ service:
       # Revert to config/rtabmap_params.yaml if the map gets worse.
       params_file: config/rtabmap_params_mapping.yaml
       sensor_providers:
+        # lynx_lidar now declares /scanner/cloud_merged from the merger, so
+        # RTAB-Map maps with both Airy lidars (full 360-degree coverage).
         lidar3d: lynx_lidar
         # FAST-LIO 提供外部里程计（TF odom→base_link）；绑定后 rtabmap 不再跑
         # 自己的 ICP 里程计。IMU 不用绑：FAST-LIO 直接订阅 /airy_201/imu。

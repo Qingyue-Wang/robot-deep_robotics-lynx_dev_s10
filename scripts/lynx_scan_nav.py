@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Merge the Lynx S10 front/rear Airy clouds into one 360-degree LaserScan.
+"""Merge the Lynx S10 front/rear Airy clouds into one 360-degree stream.
 
-Mapping keeps using the front cloud through the ``lynx_lidar`` primitive; this
-node only feeds the navigation costmaps on ``/scanner/scan_nav``. The two
-lidars are mounted vertically (front faces forward, rear faces backward), so
-each contributes one half of the 360-degree 2D slice:
+The two lidars are mounted vertically (front faces forward, rear faces
+backward), so each contributes one half of the 360-degree slice. This node
+publishes both products from the same transformed points:
 
-    /airy_201/points (front) ─┐
-                              ├─ base_link -> height band -> 720 bins -> min range
-    /airy_202/points (rear)  ─┘
-                              ▼
-                      /scanner/scan_nav
+    /scanner/scan_nav      LaserScan    front+rear -> 720 bins -> min range
+    /scanner/cloud_merged  PointCloud2  both clouds transformed into base_link
 
-The height band is ``-0.25 .. 1.50 m`` in ``base_link``. The measured floor is
-at z ~= -0.45 m, so the floor stays out while low obstacles down to ~0.2 m
+``/scanner/scan_nav`` feeds the Nav2 costmaps. ``/scanner/cloud_merged`` is the
+mapping input in the mapping-only profile: RTAB-Map receives one cloud with
+full 360-degree coverage instead of the front lidar's forward hemisphere.
+FAST-LIO still consumes the raw front cloud directly; this node never touches
+odometry.
+
+The 2D height band is ``-0.25 .. 1.50 m`` in ``base_link``. The measured floor
+is at z ~= -0.45 m, so the floor stays out while low obstacles down to ~0.2 m
 above the floor are kept. ``range_min`` (default 0.36 m, the chassis radius)
 drops the robot's own legs/body.
+
+The merged 3D cloud keeps all heights (the height band is scan-only), removes
+points inside the robot footprint, caps the XY range at ``merged_range_max``
+(default 12 m), and strides down to ``merged_max_points`` (default 30000) to
+bound DDS bandwidth. Its frame is ``base_link`` and it is published
+best-effort at ``publish_rate``.
 
 ``/scanner/scan`` (front-only) is deliberately left untouched: it still feeds
 mapping's relocalization and the nav2 velocity guard's diagnostics.
@@ -36,7 +44,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.time import Time
-from sensor_msgs.msg import LaserScan, PointCloud2
+from sensor_msgs.msg import LaserScan, PointCloud2, PointField
 from tf2_ros import Buffer, TransformListener
 
 
@@ -131,6 +139,15 @@ class NavScanMerger(Node):
             "publish_rate", 10.0).value)
         self.max_cloud_age_s = float(self.declare_parameter(
             "max_cloud_age_s", 0.6).value)
+        # Merged 3D cloud: one PointCloud2 in base_link for the mapping input.
+        self.merged_topic = str(self.declare_parameter(
+            "merged_topic", "/scanner/cloud_merged").value)
+        self.publish_merged = bool(self.declare_parameter(
+            "publish_merged", True).value)
+        self.merged_max_points = int(self.declare_parameter(
+            "merged_max_points", 30000).value)
+        self.merged_range_max = float(self.declare_parameter(
+            "merged_range_max", 12.0).value)
         # Rectangular self-filter in base_link. The front/rear Airy are mounted
         # on the body and see their own upper legs/body at 0.36-0.6 m; the old
         # circular range_min alone left those returns in the costmap, which
@@ -162,6 +179,10 @@ class NavScanMerger(Node):
             qos_profile_sensor_data)
         self._pub = self.create_publisher(
             LaserScan, self.output_topic, qos_profile_sensor_data)
+        self._cloud_pub = None
+        if self.publish_merged:
+            self._cloud_pub = self.create_publisher(
+                PointCloud2, self.merged_topic, qos_profile_sensor_data)
         self.create_timer(1.0 / max(self.rate_hz, 1.0), self._tick)
         self.get_logger().info(
             "lynx_scan_nav ready: %s + %s -> %s "
@@ -172,6 +193,13 @@ class NavScanMerger(Node):
                self.range_max, self.bins, self.rate_hz,
                2.0 * self._self_filter_half_length,
                2.0 * self._self_filter_half_width))
+        if self._cloud_pub is not None:
+            self.get_logger().info(
+                "merged 3D cloud -> %s (frame %s, <=%d pts, range <=%.1f m)"
+                % (self.merged_topic, self.base_frame,
+                   self.merged_max_points, self.merged_range_max))
+        else:
+            self.get_logger().info("merged 3D cloud disabled")
 
     def _warn(self, key: str, message: str) -> None:
         now = time.monotonic()
@@ -211,6 +239,7 @@ class NavScanMerger(Node):
         now = self.get_clock().now()
         now_s = now.nanoseconds * 1e-9
         ranges = np.full(self.bins, np.inf, dtype=np.float64)
+        merged_parts: list[np.ndarray] = []
         used = 0
         for label, msg, fallback_frame in (
                 ("front", self._front, self.front_frame),
@@ -229,6 +258,9 @@ class NavScanMerger(Node):
             points = points[mask]
             if points.size == 0:
                 continue
+            # Keep the full-height cloud for the merged mapping input; the
+            # height/range/self filters below are only for the 2D scan.
+            merged_parts.append(points)
             mask = ((points[:, 2] >= self.height_min) &
                     (points[:, 2] <= self.height_max))
             points = points[mask]
@@ -267,6 +299,9 @@ class NavScanMerger(Node):
             np.minimum.at(ranges, index, distance)
             used += 1
 
+        if self._cloud_pub is not None and merged_parts:
+            self._publish_merged(merged_parts, now)
+
         if used == 0:
             self._warn("no-data", "no fresh lidar cloud for /scanner/scan_nav")
             return
@@ -283,6 +318,58 @@ class NavScanMerger(Node):
         scan.range_max = self.range_max
         scan.ranges = ranges.tolist()
         self._pub.publish(scan)
+
+    def _publish_merged(self, parts: list[np.ndarray], now) -> None:
+        """Publish both lidars as one XYZ PointCloud2 in base_link."""
+        if self._cloud_pub is None or not parts:
+            return
+        points = np.concatenate(parts, axis=0)
+        if points.size == 0:
+            return
+        # Same footprint self-filter as the 2D scan: drop the robot's own
+        # body/legs so they cannot seed the map or bias ICP.
+        if (self._self_filter_half_length > 0.0 and
+                self._self_filter_half_width > 0.0):
+            inside = (
+                (np.abs(points[:, 0]) <= self._self_filter_half_length) &
+                (np.abs(points[:, 1]) <= self._self_filter_half_width))
+            points = points[~inside]
+            if points.size == 0:
+                return
+        if self.merged_range_max > 0.0:
+            distance = np.hypot(points[:, 0], points[:, 1])
+            points = points[distance <= self.merged_range_max]
+            if points.size == 0:
+                return
+        if (self.merged_max_points > 0 and
+                len(points) > self.merged_max_points):
+            stride = int(math.ceil(len(points) / float(self.merged_max_points)))
+            points = points[::stride][:self.merged_max_points]
+
+        cloud = PointCloud2()
+        cloud.header.stamp = now.to_msg()
+        cloud.header.frame_id = self.base_frame
+        cloud.height = 1
+        cloud.width = int(len(points))
+        cloud.fields = [
+            PointField(name="x", offset=0,
+                       datatype=PointField.FLOAT32, count=1),
+            PointField(name="y", offset=4,
+                       datatype=PointField.FLOAT32, count=1),
+            PointField(name="z", offset=8,
+                       datatype=PointField.FLOAT32, count=1),
+        ]
+        cloud.is_bigendian = False
+        cloud.point_step = 12
+        cloud.row_step = 12 * cloud.width
+        cloud.is_dense = True
+        xyz = np.empty(cloud.width,
+                       dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4")])
+        xyz["x"] = points[:, 0]
+        xyz["y"] = points[:, 1]
+        xyz["z"] = points[:, 2]
+        cloud.data = xyz.tobytes()
+        self._cloud_pub.publish(cloud)
 
 
 def main(argv: list[str] | None = None) -> int:
