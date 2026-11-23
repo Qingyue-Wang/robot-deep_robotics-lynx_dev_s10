@@ -110,6 +110,8 @@ fi
 # Navigation extras:
 #   lynx_scan_nav   — front+rear Airy clouds -> /scanner/scan_nav (costmaps)
 #                     and /scanner/cloud_merged (the mapping input)
+#   lio_cloud_merge — front+rear Airy clouds -> /scanner/cloud_lio (the FAST-LIO
+#                     odometry input; see LYNX_LIO_MERGE below)
 #   drive_direction — plan-angle -> DWB forward/reverse velocity range
 # Both wait for the driver/nav2 to appear, so starting them before `rbnx boot`
 # is safe. start.sh's cleanup() and stop.sh's explicit patterns reap them.
@@ -124,6 +126,17 @@ if [[ "$start_scan_merger" == "1" && \
       -f "$DEPLOY_DIR/scripts/lynx_scan_nav.py" ]]; then
   python3 "$DEPLOY_DIR/scripts/lynx_scan_nav.py" --manifest "$MANIFEST" \
     >>"$LOG_DIR/lynx_scan_nav.log" 2>&1 &
+  NAV_EXTRAS_PIDS+=($!)
+fi
+# LIO merge: front+rear Airy -> ONE cloud in the front lidar frame for
+# FAST-LIO (2026-11-23). FAST-LIO used to see only the front vertical disc, so
+# its rotation-time registration had no horizontal spread and /fastlio/odom
+# drifted. LYNX_LIO_MERGE=0 disables it (then FAST-LIO must read
+# /airy_201/points again in primitives/primitive-lynx_fastlio/config).
+if [[ "${LYNX_LIO_MERGE:-1}" != "0" && \
+      -f "$DEPLOY_DIR/scripts/lio_cloud_merge.py" ]]; then
+  python3 "$DEPLOY_DIR/scripts/lio_cloud_merge.py" --manifest "$MANIFEST" \
+    >>"$LOG_DIR/lio_cloud_merge.log" 2>&1 &
   NAV_EXTRAS_PIDS+=($!)
 fi
 if [[ "${LYNX_NAV_EXTRAS:-1}" != "0" && \

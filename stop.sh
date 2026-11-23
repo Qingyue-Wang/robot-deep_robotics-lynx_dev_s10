@@ -86,11 +86,11 @@ terminate_deployment_orphans
 
 # start.sh launches these deployment-level navigation helpers outside rbnx;
 # they are not under rbnx-boot/cache, so stop them explicitly.
-for pattern in "scripts/lynx_scan_nav.py" "scripts/drive_direction.py"; do
+for pattern in "scripts/lynx_scan_nav.py" "scripts/lio_cloud_merge.py" "scripts/drive_direction.py"; do
   pkill -TERM -f -- "$DEPLOY_DIR/$pattern" 2>/dev/null || true
 done
 sleep 0.5
-for pattern in "scripts/lynx_scan_nav.py" "scripts/drive_direction.py"; do
+for pattern in "scripts/lynx_scan_nav.py" "scripts/lio_cloud_merge.py" "scripts/drive_direction.py"; do
   pkill -KILL -f -- "$DEPLOY_DIR/$pattern" 2>/dev/null || true
 done
 

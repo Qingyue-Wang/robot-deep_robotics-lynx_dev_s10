@@ -63,17 +63,18 @@ env:
   # 时间戳越拖越旧 -> FAST-LIO/rtabmap 失效）。用独立域隔离。
   ROS_DOMAIN_ID: "43"
   LYNX_ROBOT_DOMAIN_ID: "0"
-  # Conditional angular deadband in nav2_wrapper.velocity_guard:
-  # 0.35 while translating; terminal pivot uses 0.10 as an intent gate and
-  # boosts any command in (0.10, 0.35) to 0.35; anything >= 0.35 passes as-is.
-  # The gate must stay BELOW the controller's terminal output: DWB's
-  # acceleration limit emits only 0.10-0.17 rad/s there, so the old 0.22 gate
-  # zeroed every command and the robot stepped in place for seconds
-  # (2026-11-19 16:45 run: last 26 deg took ~9 s).
-  ROBONIX_NAV_MOVING_ANGULAR_DEADBAND: "0.35"
+  # 角速度下限（2026-11-23）：这台轮足底盘在 0.35 rad/s 以下响应很差（实测
+  # 0.10-0.22 段 25-28%、0.22-0.35 段 63%、0.35-0.60 段 76%），nav2 到点后
+  # 一直重发 ~0.15 rad/s 的航向修正 → 原地踏步直到目标超时。现在不区分行进/
+  # 终点：|ω| < 0.10 归零，0.10-0.35 一律抬到 0.35，≥0.35 原样透传。
   ROBONIX_NAV_TERMINAL_ANGULAR_DEADBAND: "0.10"
   ROBONIX_NAV_TERMINAL_MIN_ANGULAR_SPEED: "0.35"
-  ROBONIX_NAV_TERMINAL_LINEAR_EPS: "0.05"
+  # 角速度卡死判据：指令 ≥0.10 rad/s 持续 3 s，而里程计 yaw 变化 <0.05 rad
+  # → 取消该目标（nav2 的 progress checker 只看 x/y，抓不到原地打转）。
+  ROBONIX_NAV_ROT_STUCK_S: "3.0"
+  ROBONIX_NAV_ROT_STUCK_RAD: "0.05"
+  ROBONIX_NAV_ROT_STUCK_MIN_CMD: "0.10"
+  ROBONIX_NAV_ROT_STUCK_COOLDOWN_S: "10.0"
   # Prebuilt drdds message package used by lynx_quadruped. On this Orin it is
   # the dog user's colcon workspace; on an nvidia-user robot install it is
   # /home/nvidia/drdds_build_ws/install.
@@ -90,8 +91,10 @@ env:
   MAPPING_WEBUI_PORT: "8091"
   # 2D scan for the mapping service's static relocalization / trust check.
   # This deploy has no lidar2d capability; nav2's scan_projection publishes
-  # /scanner/scan. Without this the service looks for /scan, finds no publisher,
-  # and automatic relocalization can never run.
+  # /scanner/scan. Since lynx_lidar now declares the merged front+rear cloud,
+  # that projection is 360-degree rather than front-only. Without this the
+  # service looks for /scan, finds no publisher, and automatic relocalization
+  # can never run.
   MAPPING_SCAN_TOPIC: /scanner/scan
   ROBONIX_NAV2_FORCE: native
   ROBONIX_NAV2_PLATFORM: jetson_nx
@@ -206,21 +209,23 @@ primitive:
     # ports. The cached remote package is not modified by this repo.
     path: ./primitives/primitive-lynx_lidar
     config:
-      # FRONT Airy lidar (airy_201): VERTICAL mount (pitch +90°), scans a vertical
-      # disc (floor ↔ ceiling). Unlike the BACK lidar's horizontal 360° scan, this
-      # geometry gives poor forward coverage for 2D mapping. It also defeats
-      # RTAB-Map's normal-based ground segmentation (see Grid/NormalsSegmentation
-      # in rtabmap_params.yaml) since there is no local floor PATCH to estimate a
-      # normal from, only a thin scan line — ground filtering there now falls back
-      # to plain height-thresholding instead.
-      points_topic: /airy_201/points
-      # 声明 best_effort：rslidar_sdk 的发布端仍是 RELIABLE，但 BEST_EFFORT 订阅者
-      # 不产生 DDS 可靠流控（ack/back-pressure）。scene 等消费端会按这里的声明
-      # 建立订阅；若声明 reliable，scene（回调跟不上 21Hz×26k 点云）会靠流控
-      # 把整条 /airy_201/points 压慢，驱动内部队列堆积、时间戳越来越旧，
-      # FAST-LIO/rtabmap 随之失去实时数据。与 IMU 的 qos 处理同理。
+      # Dual-lidar mapping input: scripts/lynx_scan_nav.py merges the front
+      # (/airy_201/points) and rear (/airy_202/points) Airy clouds into one
+      # PointCloud2 in base_link and publishes /scanner/cloud_merged at 10 Hz.
+      # start.sh starts the merger before `rbnx boot` (nav extras are on by
+      # default), so this primitive sees the merged topic as soon as the
+      # rslidar driver produces points. FAST-LIO still consumes the raw front
+      # cloud directly.
+      #
+      # Side effect: every consumer bound to lynx_lidar now gets the merged
+      # cloud. That includes nav2's scan_projection (scan_cloud: lynx_lidar),
+      # so /scanner/scan becomes a 360-degree projection instead of front-only.
+      points_topic: /scanner/cloud_merged
+      # BEST_EFFORT: no DDS reliable back-pressure on a ~0.36 MB/frame merged
+      # stream; the merger publishes sensor-data QoS and consumers subscribe
+      # best-effort (same reasoning as the raw clouds).
       qos: best_effort
-      sentinel_timeout_s: 15.0          # stays Deferred until points actually flow
+      sentinel_timeout_s: 30.0          # rslidar startup + first merged frame
 
   - name: lynx_fastlio
     path: ./primitives/primitive-lynx_fastlio
@@ -367,23 +372,28 @@ service:
       use_sim_time: false
       map_id: aiit_27f            # ignored in mapping mode
       map_mode: localization          # fresh map: this NX has no saved map yet (localization needs an existing rtabmap.db)
-      # WebUI overlay only: draw the front+rear merged 360-degree scan on the
-      # map in real time. The persisted RTAB-Map occupancy grid and
-      # MAPPING_SCAN_TOPIC stay front-only (/scanner/scan, lynx_lidar).
+      # WebUI overlay: the merged front+rear 2D scan from lynx_scan_nav.py.
+      # The persisted RTAB-Map grid now uses the merged 3D cloud
+      # (/scanner/cloud_merged) as lidar3d, so both Airy lidars contribute;
+      # MAPPING_SCAN_TOPIC remains nav2's /scanner/scan.
       webui_scan_topic: /scanner/scan_nav
       # navigation_odom_bridge 保持 OFF：外部里程计模式下启用它会与
       # sensor_providers.odom 冲突，launch 会直接报错。
       navigation_odom_bridge: false
-      # The Airy was rebuilt with POINT_TYPE=XYZIRT, so each point carries a
-      # lidar-clock timestamp. FAST-LIO uses those timestamps for its own
-      # motion undistortion; RTAB-Map still consumes the raw cloud for the
-      # occupancy grid, where a moving 10 Hz scan smears unless deskewed.
-      # Keep deskew off for now: the deskew node publishes RELIABLE while
-      # rtabmap subscribes BEST_EFFORT, which dropped the whole cloud
-      # (complete data loss). Re-enable after fixing that QoS mismatch.
+      # FAST-LIO consumes the raw XYZIRT front cloud and uses its per-point
+      # timestamps for motion undistortion. RTAB-Map now consumes the merged
+      # XYZ cloud (no per-point time), so lidar-side deskewing is not possible;
+      # keep this off. (The old deskew node also published RELIABLE while
+      # rtabmap subscribed BEST_EFFORT, which dropped the whole cloud.)
       deskew_lidar: false
+      # The full stack keeps the original loop-closure params. The mapping-only
+      # profile uses config/rtabmap_params_mapping.yaml for the proximity/ICP
+      # experiment (ProximityPathMaxNeighbors 5, Icp/MaxCorrespondenceDistance
+      # 0.4). Switch it here too if that experiment proves out.
       params_file: config/rtabmap_params.yaml
       sensor_providers:
+        # lynx_lidar declares /scanner/cloud_merged from the merger, so the
+        # full stack maps with both Airy lidars (360-degree coverage).
         lidar3d: lynx_lidar
         # FAST-LIO 提供外部里程计（TF odom→base_link）；绑定后 rtabmap 不再跑
         # 自己的 ICP 里程计。IMU 不用绑：FAST-LIO 直接订阅 /airy_201/imu。
@@ -426,9 +436,11 @@ service:
         default_percentage: 75
         step_percentage: 20
         min_percentage: 20
-      # Project the MID-360 cloud in base_link, remove returns inside the Soma
+      # Project the lidar cloud in base_link, remove returns inside the Soma
       # footprint, reject isolated scan speckles, and publish the canonical
       # /scanner/scan consumed by both Nav2 costmaps and the velocity guard.
+      # Since lynx_lidar declares the merged front+rear cloud, this projection
+      # is now 360-degree (it used to see only the front Airy).
       # Keeping this conversion inside navigation avoids the incompatible QoS
       # and duplicate scan publishers seen with the legacy pcld2lscan service.
       scan_projection:
@@ -448,6 +460,9 @@ service:
         # nav2 仍消费底盘 odom 契约（/odom）；lynx_quadruped 把 lynx_fastlio 的
         # /fastlio/odom 重打后转发到 /odom。map→odom 修正仍由 mapping 发布。
         odom: lynx_quadruped
+        # Now the merged front+rear cloud, so nav2's /scanner/scan projection
+        # covers 360 degrees. If front-only is ever needed again, bind a
+        # separate provider for /airy_201/points.
         scan_cloud: lynx_lidar
 
   # ---- 抓取几何服务（视觉全在这里）---------------------------------------

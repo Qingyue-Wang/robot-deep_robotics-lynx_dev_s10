@@ -32,7 +32,13 @@
         map_file_path: ""
 
         common:
-            lid_topic: "/airy_201/points"
+            # 2026-11-23: read the merged front+rear cloud (still expressed in
+            # the front lidar frame, so extrinsic_T/_R below stay valid). The
+            # Airy is a vertical disc: with only the front one the registration
+            # loses horizontal structure while the robot rotates. The merger
+            # is scripts/lio_cloud_merge.py (LYNX_LIO_MERGE=1 in start.sh).
+            # Set back to "/airy_201/points" to run front-only.
+            lid_topic: "/scanner/cloud_lio"
             imu_topic: "/airy_201/imu"
             time_sync_en: false
             time_offset_lidar_to_imu: 0.0
